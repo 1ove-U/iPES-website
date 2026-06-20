@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Players collection: everyone can read (public leaderboard),
+    // only authenticated admins can create/update/delete.
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Tournament Archive: public read, admin-only write. Same trust model
+    // as players above.
+    match /tournaments/{tournamentId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Bracket matches: each doc is one match in a tournament's bracket
+    // (round/slot/players/score/winner). Public read so anyone can watch a
+    // live bracket; admin-only write since only the admin enters results.
+    match /matches/{matchId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // News posts from Admin: public read, admin-only write.
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Small metadata docs: rankingSnapshot (timestamp of the last "Ranking
+    // Movement" snapshot) and rule (the competition rules page body).
+    // Public read, admin-only write — same trust model as everything else.
+    match /meta/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Admins collection: lists which UIDs are allowed to write.
+    // Only readable by the admin themselves (to check their own status),
+    // never writable from the client (manage via Firebase Console only).
+    match /admins/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+  }
+}
