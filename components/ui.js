@@ -110,19 +110,16 @@ export const Sparkline = ({ points, width = 280, height = 64, color = colors.cya
 };
 
 
+// Logo: uses the iPES brand logo image (public/logo.png). Height is fixed
+// to `size`; width is automatic so the logo's real aspect ratio is kept
+// (the artwork is a wide wordmark, not a square icon) — never stretches it.
 export const Logo = ({ size = 40 }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
-    <defs>
-      <linearGradient id="ipesGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="#e879f9" />
-        <stop offset="50%" stopColor="#a78bfa" />
-        <stop offset="100%" stopColor="#22d3ee" />
-      </linearGradient>
-    </defs>
-    <path d="M50 4 L92 18 V46 C92 70 74 88 50 96 C26 88 8 70 8 46 V18 Z"
-      stroke="url(#ipesGrad)" strokeWidth="5" fill="rgba(20,16,46,0.6)" strokeLinejoin="round" />
-    <path d="M50 60 L60 38 L52 38 L58 22 L40 46 L48 46 Z" fill="url(#ipesGrad)" />
-  </svg>
+  // eslint-disable-next-line @next/next/no-img-element
+  <img
+    src="/logo.png"
+    alt="iPES"
+    style={{ height: size, width: "auto", display: "block", objectFit: "contain" }}
+  />
 );
 
 // ─── Pill ──────────────────────────────────────────────────────────────────
