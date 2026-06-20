@@ -3,9 +3,10 @@
 
 import { useState, useMemo } from "react";
 import { Avatar } from "./Avatar";
-import { Pill, IconEdit, formatDate, VerifyCodeBadge } from "./ui";
+import { Pill, IconEdit, IconDownload, formatDate, VerifyCodeBadge } from "./ui";
 import { colors, card, btnPrimary, btnGhost, inputStyle, labelStyle } from "../lib/theme";
 import { roundLabel, decideWinner, totalRounds } from "../lib/bracket";
+import { exportBracketAsImage, openBracketPrintView } from "../lib/exportBracket";
 
 function nameOf(playersById, id) {
   if (!id) return null;
@@ -111,19 +112,37 @@ export const BracketView = ({ tournament, matches, playersById, isAdmin, onOpenR
   }, [matches, size]);
 
   return (
-    <div style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8 }}>
-      {rounds.map((roundMatches, r) => (
-        <div key={r} style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f0ff", marginBottom: 8 }}>{roundLabel(r, size)}</div>
-          <RoundDeadlineRow isAdmin={isAdmin} deadline={tournament.deadlines?.[r]} onSave={(iso) => onSetDeadline(r, iso)} />
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-around", flex: 1 }}>
-            {roundMatches.map((m) => (
-              <MatchCard key={m.id} match={m} playersById={playersById} isAdmin={isAdmin}
-                deadline={tournament.deadlines?.[r]} onOpenResult={onOpenResult} />
-            ))}
-          </div>
+    <div>
+      {isAdmin && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
+          <button
+            onClick={() => exportBracketAsImage(tournament, matches, playersById)}
+            style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", fontSize: 12 }}
+          >
+            <IconDownload />ดาวน์โหลดรูป (PNG)
+          </button>
+          <button
+            onClick={() => openBracketPrintView(tournament, matches, playersById)}
+            style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", fontSize: 12 }}
+          >
+            <IconDownload />พิมพ์ / บันทึก PDF
+          </button>
         </div>
-      ))}
+      )}
+      <div style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8 }}>
+        {rounds.map((roundMatches, r) => (
+          <div key={r} style={{ display: "flex", flexDirection: "column" }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f0ff", marginBottom: 8 }}>{roundLabel(r, size)}</div>
+            <RoundDeadlineRow isAdmin={isAdmin} deadline={tournament.deadlines?.[r]} onSave={(iso) => onSetDeadline(r, iso)} />
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-around", flex: 1 }}>
+              {roundMatches.map((m) => (
+                <MatchCard key={m.id} match={m} playersById={playersById} isAdmin={isAdmin}
+                  deadline={tournament.deadlines?.[r]} onOpenResult={onOpenResult} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
