@@ -39,6 +39,7 @@ import { AdminDashboardTab } from "../components/Admin";
 import { StatsRankingTab } from "../components/Stats";
 import { RuleTab, RuleForm } from "../components/Rule";
 import { RecentMatchesWidget, UpcomingTournamentWidget } from "../components/HomeWidgets";
+import { ClubManagerList, ClubForm } from "../components/ClubManager";
 
 const NEWS_SEEN_KEY = "ipes_news_last_seen";
 
@@ -101,6 +102,7 @@ export default function App() {
   const [news, setNews] = useState([]);
   const [matches, setMatches] = useState([]);
   const [rule, setRule] = useState(null);
+  const [clubs, setClubs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("leaderboard");
 
@@ -126,6 +128,12 @@ export default function App() {
 
   // ── Rule modal ──
   const [showEditRule, setShowEditRule] = useState(false);
+
+  // ── Club manager modals ──
+  const [showClubManager, setShowClubManager] = useState(false);
+  const [showAddClub, setShowAddClub] = useState(false);
+  const [editClub, setEditClub] = useState(null);
+  const [deleteClubTarget, setDeleteClubTarget] = useState(null);
 
   // ── Player Profile / Compare modals (store id only; the live ranked
   // object is looked up by id on every render so edits/deletes stay in sync) ──
@@ -191,6 +199,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unsub = onSnapshot(collection(db, "clubs"), (snap) => {
+      setClubs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Firestore error (clubs):", err));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setIsAdmin(!!user);
       setAuthChecked(true);
@@ -225,6 +240,7 @@ export default function App() {
   // "recalculate" step to remember to run. ──
   const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const tournamentsById = useMemo(() => new Map(tournaments.map((t) => [t.id, t])), [tournaments]);
+  const clubsByName = useMemo(() => new Map(clubs.map((c) => [(c.name || "").toLowerCase(), c])), [clubs]);
   const matchesByTournament = useMemo(() => {
     const map = new Map();
     for (const m of matches) {
@@ -512,6 +528,48 @@ export default function App() {
     }
   };
 
+  // ── Clubs CRUD (name + logoUrl). Names are matched case-insensitively
+  // against player.club elsewhere (see clubsByName), so two club docs with
+  // the same name would silently collide — block that here. ──
+  const addClub = async (form) => {
+    const dupe = clubs.some((c) => c.name.toLowerCase() === form.name.toLowerCase());
+    if (dupe) {
+      alert(`มีสโมสร์ชื่อ "${form.name}" อยู่แล้ว กรุณาแก้ไขสโมสร์เดิม หรือใช้ชื่ออื่น`);
+      return;
+    }
+    try {
+      await addDoc(collection(db, "clubs"), { ...form, createdAt: serverTimestamp() });
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const updateClub = async (id, form) => {
+    const dupe = clubs.some((c) => c.id !== id && c.name.toLowerCase() === form.name.toLowerCase());
+    if (dupe) {
+      alert(`มีสโมสร์ชื่อ "${form.name}" อยู่แล้ว กรุณาใช้ชื่ออื่น`);
+      return;
+    }
+    try {
+      await updateDoc(doc(db, "clubs", id), { ...form });
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const deleteClub = async (id) => {
+    try {
+      await deleteDoc(doc(db, "clubs", id));
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setDeleteClubTarget(null);
+    }
+  };
+
   // ── Ranking Movement snapshot: freezes current rank/score on every player
   // doc + stamps meta/rankingSnapshot, so next time getMovement() has a
   // baseline to compare against. No Cloud Functions/cron required. ──
@@ -542,6 +600,7 @@ export default function App() {
       ["tournaments", data.tournaments],
       ["matches", data.matches],
       ["news", data.news],
+      ["clubs", data.clubs],
     ];
     let batch = writeBatch(db);
     let count = 0;
@@ -665,12 +724,13 @@ export default function App() {
                   onOpenProfile={(p) => setProfileOpenPlayerId(p.id)}
                   latestNews={latestNews}
                   onViewAllNews={() => setTab("news")}
+                  clubsByName={clubsByName}
                 />
               </>
             )}
 
             {tab === "clubs" && (
-              <ClubRankingTab ranked={ranked} onOpenProfile={(p) => setProfileOpenPlayerId(p.id)} />
+              <ClubRankingTab ranked={ranked} clubsByName={clubsByName} onOpenProfile={(p) => setProfileOpenPlayerId(p.id)} />
             )}
 
             {tab === "tournaments" && (
@@ -734,12 +794,14 @@ export default function App() {
                 matches={matches}
                 news={news}
                 rule={rule}
+                clubs={clubs}
                 lastSnapshotAt={formatDate(lastSnapshotAt)}
                 snapshotLoading={snapshotLoading}
                 onSnapshot={handleSnapshot}
                 onAddPlayer={() => setShowAddPlayer(true)}
                 onAddTournament={() => setShowAddTournament(true)}
                 onAddNews={() => setShowAddNews(true)}
+                onManageClubs={() => setShowClubManager(true)}
                 onImportJSON={onImportJSON}
               />
             )}
@@ -753,12 +815,12 @@ export default function App() {
       {/* ── Player modals ── */}
       {showAddPlayer && (
         <Modal title="เพิ่มผู้เล่นใหม่" onClose={() => setShowAddPlayer(false)}>
-          <PlayerForm onSave={addPlayer} onClose={() => setShowAddPlayer(false)} />
+          <PlayerForm onSave={addPlayer} onClose={() => setShowAddPlayer(false)} clubs={clubs} />
         </Modal>
       )}
       {editPlayer && (
         <Modal title={`แก้ไข: ${editPlayer.name}`} onClose={() => setEditPlayer(null)}>
-          <PlayerForm initial={editPlayer} onSave={updatePlayer} onClose={() => setEditPlayer(null)} />
+          <PlayerForm initial={editPlayer} onSave={updatePlayer} onClose={() => setEditPlayer(null)} clubs={clubs} />
         </Modal>
       )}
       {deletePlayerTarget && (
@@ -833,6 +895,40 @@ export default function App() {
         <Modal title={rule?.body ? "แก้ไขกฎการแข่งขัน" : "เพิ่มกฎการแข่งขัน"} onClose={() => setShowEditRule(false)}>
           <RuleForm initial={rule} onSave={updateRule} onClose={() => setShowEditRule(false)} />
         </Modal>
+      )}
+
+      {/* ── Club manager modals ── */}
+      {showClubManager && (
+        <Modal title="จัดการโลโก้สโมสร์" onClose={() => setShowClubManager(false)}>
+          <ClubManagerList
+            clubs={clubs}
+            onAdd={() => setShowAddClub(true)}
+            onEdit={(c) => setEditClub(c)}
+            onDeleteRequest={(c) => setDeleteClubTarget(c)}
+            onClose={() => setShowClubManager(false)}
+          />
+        </Modal>
+      )}
+
+      {showAddClub && (
+        <Modal title="เพิ่มสโมสร์" onClose={() => setShowAddClub(false)}>
+          <ClubForm onSave={addClub} onClose={() => setShowAddClub(false)} />
+        </Modal>
+      )}
+
+      {editClub && (
+        <Modal title="แก้ไขสโมสร์" onClose={() => setEditClub(null)}>
+          <ClubForm initial={editClub} onSave={(form) => updateClub(editClub.id, form)} onClose={() => setEditClub(null)} />
+        </Modal>
+      )}
+
+      {deleteClubTarget && (
+        <ConfirmDeleteModal
+          title="ยืนยันการลบสโมสร์"
+          message={<>คุณต้องการลบสโมสร์ <b style={{ color: "#f87171" }}>{deleteClubTarget.name}</b> หรือไม่? โลโก้จะหายไปจากหน้าอันดับ (ผู้เล่นที่สังกัดสโมสร์นี้ยังอยู่เหมือนเดิม)</>}
+          onCancel={() => setDeleteClubTarget(null)}
+          onConfirm={() => deleteClub(deleteClubTarget.id)}
+        />
       )}
 
       {/* ── Player Profile modal ── */}

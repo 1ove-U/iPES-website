@@ -44,12 +44,12 @@ const downloadBlob = (filename, text, type) => {
   URL.revokeObjectURL(url);
 };
 
-const BackupRestoreSection = ({ players, tournaments, matches, news, rule, onImportJSON }) => {
+const BackupRestoreSection = ({ players, tournaments, matches, news, rule, clubs, onImportJSON }) => {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
   const exportJSON = () => {
-    const payload = { exportedAt: new Date().toISOString(), players, tournaments, matches, news, rule };
+    const payload = { exportedAt: new Date().toISOString(), players, tournaments, matches, news, rule, clubs };
     downloadBlob(`ipes-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload, null, 2), "application/json");
   };
 
@@ -66,11 +66,11 @@ const BackupRestoreSection = ({ players, tournaments, matches, news, rule, onImp
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (!data || (!data.players && !data.tournaments && !data.matches && !data.news)) {
+      if (!data || (!data.players && !data.tournaments && !data.matches && !data.news && !data.clubs)) {
         throw new Error("ไฟล์ไม่ถูกต้อง หรือไม่มีข้อมูลที่รู้จัก");
       }
-      const counts = [data.players?.length || 0, data.tournaments?.length || 0, data.matches?.length || 0, data.news?.length || 0];
-      if (!window.confirm(`นำเข้าข้อมูล: ผู้เล่น ${counts[0]}, ทัวร์นาเมนต์ ${counts[1]}, แมตช์ ${counts[2]}, ข่าว ${counts[3]} รายการ\nรายการที่มี ID ตรงกับของเดิมจะถูกเขียนทับ ส่วนรายการอื่นจะเพิ่มใหม่ ดำเนินการต่อหรือไม่?`)) {
+      const counts = [data.players?.length || 0, data.tournaments?.length || 0, data.matches?.length || 0, data.news?.length || 0, data.clubs?.length || 0];
+      if (!window.confirm(`นำเข้าข้อมูล: ผู้เล่น ${counts[0]}, ทัวร์นาเมนต์ ${counts[1]}, แมตช์ ${counts[2]}, ข่าว ${counts[3]}, สโมสร์ ${counts[4]} รายการ\nรายการที่มี ID ตรงกับของเดิมจะถูกเขียนทับ ส่วนรายการอื่นจะเพิ่มใหม่ ดำเนินการต่อหรือไม่?`)) {
         return;
       }
       await onImportJSON(data);
@@ -111,8 +111,8 @@ const BackupRestoreSection = ({ players, tournaments, matches, news, rule, onImp
 };
 
 export const AdminDashboardTab = ({
-  players, tournaments, matches, news, rule, lastSnapshotAt, snapshotLoading,
-  onSnapshot, onAddPlayer, onAddTournament, onAddNews, onImportJSON,
+  players, tournaments, matches, news, rule, clubs, lastSnapshotAt, snapshotLoading,
+  onSnapshot, onAddPlayer, onAddTournament, onAddNews, onManageClubs, onImportJSON,
 }) => (
   <div className="fade-in">
     <SectionHeader title="Admin Dashboard" subtitle="ศูนย์กลางจัดการเว็บไซต์ iPES Leaderboard" />
@@ -124,7 +124,7 @@ export const AdminDashboardTab = ({
       <StatChip value={news.length} label="ข่าวที่ประกาศ" />
     </div>
 
-    <BackupRestoreSection players={players} tournaments={tournaments} matches={matches || []} news={news} rule={rule} onImportJSON={onImportJSON} />
+    <BackupRestoreSection players={players} tournaments={tournaments} matches={matches || []} news={news} rule={rule} clubs={clubs} onImportJSON={onImportJSON} />
 
     <div style={{ ...card, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -150,6 +150,7 @@ export const AdminDashboardTab = ({
     <ActionRow icon={<IconPlus />} title="ผู้เล่นใหม่" desc="เพิ่มผู้เล่นเข้าสู่กระดานอันดับ" buttonLabel="เพิ่มผู้เล่น" onClick={onAddPlayer} />
     <ActionRow icon={<IconTrophy />} title="ทัวร์นาเมนต์ใหม่" desc="บันทึกผลการแข่งขันลงคลังทัวร์นาเมนต์" buttonLabel="เพิ่มทัวร์นาเมนต์" onClick={onAddTournament} />
     <ActionRow icon={<IconNews />} title="ประกาศข่าว" desc="แจ้งข่าวสารหรืออัปเดตให้ผู้เล่นเห็น" buttonLabel="ประกาศข่าว" onClick={onAddNews} />
+    <ActionRow icon={<IconShield />} title="จัดการโลโก้สโมสร์" desc="อัพโหลดลิงก์รูปโลโก้ให้แต่ละสโมสร์ เพื่อขึ้นแสดงในหน้าอันดับ" buttonLabel="จัดการสโมสร์" onClick={onManageClubs} />
 
     <div style={{ fontSize: 12, color: colors.faint, marginTop: 16, lineHeight: 1.7 }}>
       💡 การแก้ไข/ลบผู้เล่น สโมสร หรือทัวร์นาเมนต์ที่มีอยู่แล้ว ทำได้จากปุ่มแก้ไข/ลบในแต่ละแท็บ

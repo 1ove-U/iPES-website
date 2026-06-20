@@ -6,6 +6,7 @@ import {
   IconSearch, IconPlus, IconEdit, IconTrash, IconClose, IconPin, Pill, MovementPill,
 } from "./ui";
 import { Avatar } from "./Avatar";
+import { ClubLogo } from "./ClubManager";
 import { colors, table, th, thR, td, tdR, btnPrimary, iconBtnCyan, iconBtnRed } from "../lib/theme";
 import { rankMedal, rankColor, getMovement } from "../lib/scoring";
 
@@ -46,7 +47,7 @@ const NewsBanner = ({ news, onViewAll }) => {
 };
 
 export const LeaderboardTab = ({
-  ranked, isAdmin, onAdd, onEdit, onDeleteRequest, onOpenProfile, latestNews, onViewAllNews,
+  ranked, isAdmin, onAdd, onEdit, onDeleteRequest, onOpenProfile, latestNews, onViewAllNews, clubsByName,
 }) => {
   const [search, setSearch] = useState("");
   const filtered = search
@@ -72,7 +73,12 @@ export const LeaderboardTab = ({
                 background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0,
                 fontWeight: 800, fontSize: p.rank === 1 ? 16 : 14, marginBottom: 2, lineHeight: 1.3,
               }}>{p.name}</button>
-              {p.club && <div style={{ fontSize: 11, color: colors.dim, marginBottom: 4 }}>{p.club}</div>}
+              {p.club && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginBottom: 4 }}>
+                  <ClubLogo name={p.club} logoUrl={clubsByName?.get(p.club.toLowerCase())?.logoUrl} size={14} radius={4} />
+                  <span style={{ fontSize: 11, color: colors.dim }}>{p.club}</span>
+                </div>
+              )}
               <div style={{ fontWeight: 800, fontSize: p.rank === 1 ? 26 : 22, color: rankColor(p.rank), fontVariantNumeric: "tabular-nums" }}>{p.score}</div>
               <div style={{ fontSize: 11, color: colors.dim, marginTop: 2 }}>คะแนน</div>
               <div style={{ marginTop: 12, display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
@@ -141,7 +147,14 @@ export const LeaderboardTab = ({
                     </span>
                   </button>
                 </td>
-                <td className="hide-mobile" style={{ ...td, color: "#a39ee0" }}>{p.club || "—"}</td>
+                <td className="hide-mobile" style={{ ...td, color: "#a39ee0" }}>
+                  {p.club ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <ClubLogo name={p.club} logoUrl={clubsByName?.get(p.club.toLowerCase())?.logoUrl} size={22} radius={6} />
+                      <span>{p.club}</span>
+                    </div>
+                  ) : "—"}
+                </td>
                 <td style={{ ...tdR, fontWeight: 800, fontSize: 16, color: colors.cyan }}>{p.score}</td>
                 <td className="hide-mobile" style={{ ...tdR, color: colors.gold, fontWeight: 700 }}>{p.champion}</td>
                 <td className="hide-mobile" style={{ ...tdR, color: colors.silver }}>{p.runnerUp}</td>
@@ -184,3 +197,4 @@ export const LeaderboardTab = ({
     </div>
   );
 };
+

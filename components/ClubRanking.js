@@ -4,15 +4,15 @@
 import { useState } from "react";
 import { Pill, EmptyState } from "./ui";
 import { Avatar } from "./Avatar";
+import { ClubLogo } from "./ClubManager";
 import { colors, card } from "../lib/theme";
 import { aggregateClubs, rankColor } from "../lib/scoring";
 
-const medalBg = (rank) => rank === 1 ? "#facc15" : rank === 2 ? "#cbd5e1" : rank === 3 ? "#fb923c" : "rgba(255,255,255,0.05)";
 const medalIcon = (rank) => rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
 
-export const ClubRankingTab = ({ ranked, onOpenProfile }) => {
+export const ClubRankingTab = ({ ranked, clubsByName, onOpenProfile }) => {
   const [expanded, setExpanded] = useState(null);
-  const clubs = aggregateClubs(ranked);
+  const clubs = aggregateClubs(ranked, clubsByName);
 
   if (clubs.length === 0) {
     return <EmptyState text="ยังไม่มีผู้เล่นที่ระบุสังกัดสโมสร" />;
@@ -34,12 +34,20 @@ export const ClubRankingTab = ({ ranked, onOpenProfile }) => {
                 display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", textAlign: "left", fontFamily: "inherit",
               }}
             >
-              <div style={{
-                width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0, background: medalBg(c.rank), fontWeight: 800, fontSize: 16,
-                color: c.rank <= 3 ? "#0a0820" : colors.dim,
-              }}>
-                {medalIcon(c.rank) || `#${c.rank}`}
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <ClubLogo name={c.club} logoUrl={c.logoUrl} size={44} radius={12} />
+                {medalIcon(c.rank) && (
+                  <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 16, lineHeight: 1 }}>
+                    {medalIcon(c.rank)}
+                  </span>
+                )}
+                {!medalIcon(c.rank) && (
+                  <span style={{
+                    position: "absolute", bottom: -4, right: -4, fontSize: 10, fontWeight: 800,
+                    background: "#1a1640", color: colors.dim, borderRadius: 6, padding: "1px 4px",
+                    border: "1px solid rgba(167,139,250,0.25)",
+                  }}>#{c.rank}</span>
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#fff" }}>{c.club}</div>

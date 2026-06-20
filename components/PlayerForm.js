@@ -12,7 +12,7 @@ export const EMPTY_PLAYER_FORM = {
 
 const textAreaStyle = { ...inputStyle, resize: "vertical", minHeight: 64, fontFamily: "inherit" };
 
-export const PlayerForm = ({ initial, onSave, onClose }) => {
+export const PlayerForm = ({ initial, onSave, onClose, clubs = [] }) => {
   const [form, setForm] = useState({ ...EMPTY_PLAYER_FORM, ...(initial || {}) });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -46,7 +46,25 @@ export const PlayerForm = ({ initial, onSave, onClose }) => {
 
       {field("ลิงก์รูปโปรไฟล์ (ไม่บังคับ)", "avatarUrl", "text", 2)}
       {field("ชื่อผู้เล่น", "name", "text", 2)}
-      {field("สังกัด / สโมสร", "club", "text", 2)}
+
+      <div style={{ marginBottom: 14, gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>สังกัด / สโมสร์</label>
+        <input
+          type="text" list="club-suggestions" value={form.club}
+          onChange={(e) => set("club", e.target.value)}
+          style={inputStyle}
+          placeholder="พิมพ์ชื่อสโมสร์ หรือเลือกจากรายการที่มีโลโก้แล้ว"
+        />
+        <datalist id="club-suggestions">
+          {clubs.map((c) => <option key={c.id} value={c.name} />)}
+        </datalist>
+        {clubs.length > 0 && (
+          <div style={{ fontSize: 11, color: "#6e6a96", marginTop: 6 }}>
+            💡 พิมพ์ชื่อให้ตรงกับสโมสร์ที่มีโลโก้ไว้แล้ว เพื่อให้โลโก้ขึ้นในหน้าอันดับอัตโนมัติ
+          </div>
+        )}
+      </div>
+
       {field("ประเทศ / เซิร์ฟเวอร์ (ไม่บังคับ)", "country", "text", 2)}
 
       <div style={{ marginBottom: 14 }}>
