@@ -7,7 +7,7 @@ import { AvatarPicker, Avatar } from "./Avatar";
 
 export const EMPTY_PLAYER_FORM = {
   name: "", club: "", champion: 0, runnerUp: 0, wins: 0, losses: 0, participated: 0,
-  avatarId: null, avatarUrl: "", country: "", bio: "",
+  avatarId: null, avatarUrl: "", country: "", bio: "", facebookUrl: "",
 };
 
 const textAreaStyle = { ...inputStyle, resize: "vertical", minHeight: 64, fontFamily: "inherit" };
@@ -66,6 +66,19 @@ export const PlayerForm = ({ initial, onSave, onClose, clubs = [] }) => {
       </div>
 
       {field("ประเทศ / เซิร์ฟเวอร์ (ไม่บังคับ)", "country", "text", 2)}
+
+      <div style={{ marginBottom: 14, gridColumn: "1 / -1" }}>
+        <label style={labelStyle}>ลิงก์ Facebook (ไม่บังคับ)</label>
+        <input
+          type="text" value={form.facebookUrl}
+          onChange={(e) => set("facebookUrl", e.target.value)}
+          style={inputStyle}
+          placeholder="https://facebook.com/..."
+        />
+        <div style={{ fontSize: 11, color: "#6e6a96", marginTop: 6 }}>
+          จะมีไอคอน Facebook ขึ้นในหน้าโปรไฟล์ของผู้เล่นให้กดเปิดได้ทันที
+        </div>
+      </div>
 
       <div style={{ marginBottom: 14 }}>
         <label style={labelStyle}>แนะนำตัว (ไม่บังคับ)</label>

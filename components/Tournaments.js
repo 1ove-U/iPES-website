@@ -9,6 +9,7 @@ import { colors, card, btnPrimary, btnGhost, iconBtnCyan, iconBtnRed, inputStyle
 import { Avatar } from "./Avatar";
 import { BracketView } from "./Bracket";
 import { BRACKET_SIZES } from "../lib/bracket";
+import { TeamLogo, TEAM_SIZES } from "./TeamManager";
 
 // ─── Legacy / quick manual entry — for results from before the bracket
 // system existed, or for recording an outside tournament by hand. Bracket
@@ -108,23 +109,78 @@ const PlayerMultiSelect = ({ players, value, onChange }) => {
   );
 };
 
-// ─── New live-bracket tournament creation: pick real players + bracket
-// size, random draw, auto BYE fill. ─────────────────────────────────────────
-export const BracketCreateForm = ({ players, onCreate, onClose }) => {
+// ─── Searchable multi-select for picking TEAMS (team-mode tournaments).
+// Only teams matching the chosen squad size are selectable, since a 3v3
+// bracket can't mix in a 5-person team. ────────────────────────────────────
+const TeamMultiSelect = ({ teams, size, value, onChange }) => {
+  const [q, setQ] = useState("");
+  const eligible = teams.filter((t) => t.size === size);
+  const filtered = eligible.filter((t) => !q.trim() || t.name.toLowerCase().includes(q.toLowerCase()));
+  const toggle = (id) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+
+  return (
+    <div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <span style={{ position: "absolute", left: 12, top: 11, color: colors.faint }}><IconSearch /></span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทีม..." style={{ ...inputStyle, paddingLeft: 36 }} />
+      </div>
+      <div style={{ fontSize: 12, color: colors.dim, marginBottom: 8 }}>เลือกแล้ว {value.length} ทีม</div>
+      {eligible.length === 0 ? (
+        <div style={{ padding: 16, color: colors.faint, fontSize: 13, textAlign: "center", border: "1px solid rgba(167,139,250,0.15)", borderRadius: 10 }}>
+          ยังไม่มีทีมขนาด {size}v{size} ในระบบ ไปสร้างทีมที่แท็บ Admin → จัดการทีม ก่อน
+        </div>
+      ) : (
+        <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid rgba(167,139,250,0.15)", borderRadius: 10 }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 16, color: colors.faint, fontSize: 13, textAlign: "center" }}>ไม่พบทีม</div>
+          ) : filtered.map((t) => {
+            const checked = value.includes(t.id);
+            return (
+              <label key={t.id} style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer",
+                borderBottom: "1px solid rgba(167,139,250,0.06)", background: checked ? "rgba(34,211,238,0.06)" : "transparent",
+              }}>
+                <input type="checkbox" checked={checked} onChange={() => toggle(t.id)} />
+                <TeamLogo name={t.name} logoUrl={t.logoUrl} size={26} radius={8} />
+                <span style={{ fontSize: 13, color: "#f1f0ff", flex: 1, minWidth: 0 }}>{t.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── New live-bracket tournament creation: pick real players (solo mode)
+// or teams (team mode) + bracket size, random draw, auto BYE fill. ────────
+export const BracketCreateForm = ({ players, teams, onCreate, onClose }) => {
+  const [format, setFormat] = useState("solo"); // "solo" | "team"
   const [name, setName] = useState("");
   const [date, setDate] = useState("");
   const [season, setSeason] = useState("");
   const [size, setSize] = useState(8);
+  const [teamSize, setTeamSize] = useState(3);
   const [playerIds, setPlayerIds] = useState([]);
+  const [teamIds, setTeamIds] = useState([]);
   const [busy, setBusy] = useState(false);
 
   const minNeeded = Math.ceil(size / 2);
-  const valid = name.trim() && playerIds.length >= minNeeded && playerIds.length <= size;
+  const fighterIds = format === "team" ? teamIds : playerIds;
+  const valid = name.trim() && fighterIds.length >= minNeeded && fighterIds.length <= size
+    && (format !== "team" || teamIds.length > 0);
+
+  const setFormatSafe = (f) => { setFormat(f); setPlayerIds([]); setTeamIds([]); };
 
   const submit = async () => {
     setBusy(true);
     try {
-      await onCreate({ name: name.trim(), date, season, bracketSize: size, playerIds });
+      await onCreate({
+        name: name.trim(), date, season, bracketSize: size,
+        playerIds: fighterIds, // bracket engine just wants a list of fighter ids — team ids work identically
+        format,
+        teamSize: format === "team" ? teamSize : null,
+      });
       onClose();
     } catch (err) {
       alert(err.message || "เกิดข้อผิดพลาด");
@@ -135,6 +191,18 @@ export const BracketCreateForm = ({ players, onCreate, onClose }) => {
 
   return (
     <div>
+      <div style={{ marginBottom: 14 }}>
+        <label style={labelStyle}>รูปแบบการแข่งขัน</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setFormatSafe("solo")} style={{ ...(format === "solo" ? btnPrimary : btnGhost), flex: 1, padding: "10px", fontSize: 13 }}>
+            👤 เดี่ยว
+          </button>
+          <button onClick={() => setFormatSafe("team")} style={{ ...(format === "team" ? btnPrimary : btnGhost), flex: 1, padding: "10px", fontSize: 13 }}>
+            👥 ทีม
+          </button>
+        </div>
+      </div>
+
       <div style={{ marginBottom: 14 }}>
         <label style={labelStyle}>ชื่อทัวร์นาเมนต์</label>
         <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
@@ -149,22 +217,48 @@ export const BracketCreateForm = ({ players, onCreate, onClose }) => {
           <input value={season} onChange={(e) => setSeason(e.target.value)} placeholder="เช่น Season 2026" style={inputStyle} />
         </div>
       </div>
+
+      {format === "team" && (
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>ขนาดทีม</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {TEAM_SIZES.map((s) => (
+              <button key={s} onClick={() => { setTeamSize(s); setTeamIds([]); }} style={{
+                ...(teamSize === s ? btnPrimary : btnGhost), flex: 1, padding: "8px", fontSize: 13,
+              }}>{s} v {s}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: 14 }}>
         <label style={labelStyle}>ขนาดสาย</label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {BRACKET_SIZES.map((s) => (
             <button key={s} onClick={() => setSize(s)} style={{
               ...(size === s ? btnPrimary : btnGhost), padding: "8px 16px", fontSize: 13,
-            }}>{s} ทีม</button>
+            }}>{s} {format === "team" ? "ทีม" : "คน"}</button>
           ))}
         </div>
       </div>
+
       <div style={{ marginBottom: 16 }}>
-        <label style={labelStyle}>เลือกผู้เล่นจากฐานข้อมูล (ต้องมีอย่างน้อย {minNeeded} คน, ไม่เกิน {size} คน)</label>
-        <PlayerMultiSelect players={players} value={playerIds} onChange={setPlayerIds} />
+        {format === "team" ? (
+          <>
+            <label style={labelStyle}>เลือกทีมจากระบบ (ต้องมีอย่างน้อย {minNeeded} ทีม, ไม่เกิน {size} ทีม)</label>
+            <TeamMultiSelect teams={teams} size={teamSize} value={teamIds} onChange={setTeamIds} />
+          </>
+        ) : (
+          <>
+            <label style={labelStyle}>เลือกผู้เล่นจากฐานข้อมูล (ต้องมีอย่างน้อย {minNeeded} คน, ไม่เกิน {size} คน)</label>
+            <PlayerMultiSelect players={players} value={playerIds} onChange={setPlayerIds} />
+          </>
+        )}
       </div>
+
       <div style={{ fontSize: 11, color: colors.faint, marginBottom: 14, lineHeight: 1.6 }}>
-        ระบบจะจับสายแบบสุ่มเท่านั้น (ไม่มี Seed) หากผู้เล่นไม่ครบขนาดสาย ช่องที่เหลือจะเป็น BYE และผ่านเข้ารอบถัดไปอัตโนมัติ
+        ระบบจะจับสายแบบสุ่มเท่านั้น (ไม่มี Seed) หากจำนวน{format === "team" ? "ทีม" : "ผู้เล่น"}ไม่ครบขนาดสาย ช่องที่เหลือจะเป็น BYE และผ่านเข้ารอบถัดไปอัตโนมัติ
+        {format === "team" && " ผลแข่งของทีมจะนับรวมเข้าสถิติส่วนตัวของสมาชิกทุกคนอัตโนมัติ"}
       </div>
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={onClose} style={{ ...btnGhost, flex: 1 }}>ยกเลิก</button>
@@ -178,7 +272,7 @@ export const BracketCreateForm = ({ players, onCreate, onClose }) => {
 
 // ─── Combined "เพิ่มทัวร์นาเมนต์" modal content: choose live bracket
 // (default, recommended) or legacy manual entry. ───────────────────────────
-export const TournamentCreateChooser = ({ players, onCreateBracket, onCreateLegacy, onClose }) => {
+export const TournamentCreateChooser = ({ players, teams, onCreateBracket, onCreateLegacy, onClose }) => {
   const [mode, setMode] = useState("bracket");
   return (
     <div>
@@ -187,7 +281,7 @@ export const TournamentCreateChooser = ({ players, onCreateBracket, onCreateLega
         <button onClick={() => setMode("legacy")} style={{ ...(mode === "legacy" ? btnPrimary : btnGhost), flex: 1, padding: "10px" }}>บันทึกผลย้อนหลัง</button>
       </div>
       {mode === "bracket"
-        ? <BracketCreateForm players={players} onCreate={onCreateBracket} onClose={onClose} />
+        ? <BracketCreateForm players={players} teams={teams} onCreate={onCreateBracket} onClose={onClose} />
         : <TournamentForm onSave={onCreateLegacy} onClose={onClose} />}
     </div>
   );
@@ -239,7 +333,7 @@ const TournamentCard = ({ t, isAdmin, isOpen, onToggle, onEdit, onDeleteRequest 
 );
 
 export const TournamentArchiveTab = ({
-  tournaments, matchesByTournament, playersById, isAdmin,
+  tournaments, matchesByTournament, playersById, teamsById, isAdmin,
   onAdd, onEdit, onDeleteRequest, onOpenResult, onSetDeadline,
 }) => {
   const [expanded, setExpanded] = useState(null);
@@ -288,7 +382,8 @@ export const TournamentArchiveTab = ({
                   <BracketView
                     tournament={t}
                     matches={matchesByTournament.get(t.id) || []}
-                    playersById={playersById}
+                    playersById={t.format === "team" ? teamsById : playersById}
+                    isTeamMode={t.format === "team"}
                     isAdmin={isAdmin}
                     onOpenResult={(m) => onOpenResult(m, t)}
                     onSetDeadline={(roundIndex, iso) => onSetDeadline(t, roundIndex, iso)}

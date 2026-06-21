@@ -2,11 +2,26 @@
 "use client";
 
 import { Avatar } from "./Avatar";
-import { Modal, Pill, MovementPill, IconEdit, IconTrash, IconSwap, Sparkline, formatDate } from "./ui";
+import { Modal, Pill, MovementPill, IconEdit, IconTrash, IconSwap, IconFacebook, Sparkline, formatDate } from "./ui";
 import { colors, card, btnGhost, btnDanger, btnPrimary } from "../lib/theme";
 import { getMovement, tournamentsForPlayer, rankMedal, rankColor } from "../lib/scoring";
 import { matchesForPlayer, recentForm, headToHead, detectUpsets, winRateInWindow, TREND_WINDOWS } from "../lib/stats";
 import { computeBadges } from "../lib/achievements";
+import { clubBannerGradient } from "./ClubManager";
+
+// ── Stadium Atmosphere: the header glow reacts to the player's current
+// form — on fire while on a hot win streak, cold/frosty during a losing
+// run, neutral otherwise. Pure presentation, derived entirely from
+// currentWinStreak / recent form already computed elsewhere; nothing new
+// stored. ───────────────────────────────────────────────────────────────
+function atmosphereOf(player, form) {
+  const streak = player.currentWinStreak || 0;
+  const recentLosses = form.slice(0, 3).filter((r) => r === "L").length;
+  if (streak >= 5) return { glow: "rgba(248,113,113,0.22)", ring: "rgba(248,113,113,0.4)", label: "🔥 ฟอร์มร้อนแรง", tone: "red" };
+  if (streak >= 3) return { glow: "rgba(250,204,21,0.18)", ring: "rgba(250,204,21,0.35)", label: "✨ กำลังมา", tone: "gold" };
+  if (recentLosses >= 3) return { glow: "rgba(96,165,250,0.14)", ring: "rgba(96,165,250,0.28)", label: "🧊 ฟอร์มเย็นชา", tone: "cyan" };
+  return null;
+}
 
 const StatBox = ({ value, label, color }) => (
   <div style={{ textAlign: "center", flex: "1 1 80px" }}>
@@ -31,30 +46,60 @@ const FormDots = ({ form }) => (
 );
 
 export const PlayerProfileModal = ({
-  player, tournaments, matches, playersById, tournamentsById, rankById,
+  player, tournaments, matches, playersById, tournamentsById, rankById, clubsByName, teamsById,
   isAdmin, onClose, onEdit, onDelete, onCompare,
 }) => {
   if (!player) return null;
   const movement = getMovement(player);
-  const history = tournamentsForPlayer(tournaments || [], player);
+  const history = tournamentsForPlayer(tournaments || [], player, teamsById);
   const playedMatches = matches ? matchesForPlayer(matches, player.id, tournamentsById) : [];
   const form = matches ? recentForm(matches, player.id, tournamentsById, 5) : [];
   const giantKills = matches && rankById ? detectUpsets(matches, rankById, tournamentsById, 15, 999).filter((u) => u.winnerId === player.id) : [];
   const badges = computeBadges(player, { allTournaments: tournaments || [], giantKillCount: giantKills.length });
   const trendPoints = matches ? TREND_WINDOWS.map((w) => winRateInWindow(matches, player.id, tournamentsById, w.days)) : [];
   const hasTrend = trendPoints.filter((v) => v != null).length >= 2;
+  const club = player.club ? clubsByName?.get(player.club.toLowerCase()) : null;
+  const hasClubColors = club?.colorPrimary && club?.colorSecondary;
+  const atmosphere = atmosphereOf(player, form);
 
   return (
     <Modal title="โปรไฟล์ผู้เล่น" onClose={onClose} maxWidth={480}>
-      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 18 }}>
+      <div style={{
+        display: "flex", gap: 16, alignItems: "center", marginBottom: 18,
+        position: "relative", padding: atmosphere ? "14px" : 0,
+        borderRadius: 14,
+        background: atmosphere ? `radial-gradient(circle at 30% 30%, ${atmosphere.glow}, transparent 70%)` : "none",
+        border: atmosphere ? `1px solid ${atmosphere.ring}` : "none",
+      }}>
+        {hasClubColors && (
+          <div style={{
+            position: "absolute", top: 0, left: 14, right: 14, height: 3, borderRadius: 2,
+            background: clubBannerGradient(club),
+          }} />
+        )}
         <Avatar player={player} size={72} radius={16} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 19, color: "#fff" }}>{player.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: 19, color: "#fff" }}>{player.name}</div>
+            {player.facebookUrl && (
+              <a href={player.facebookUrl} target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 24, height: 24, borderRadius: 7, flexShrink: 0,
+                  background: "rgba(59,89,152,0.18)", color: "#7f9fe0",
+                }}
+                title="เปิดโปรไฟล์ Facebook"
+              >
+                <IconFacebook />
+              </a>
+            )}
+          </div>
           {player.club && <div style={{ fontSize: 13, color: colors.dim, marginTop: 1 }}>{player.club}</div>}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
             <Pill tone="violet">{rankMedal(player.rank) || `#${player.rank}`} อันดับ</Pill>
             {player.country && <Pill tone="cyan">{player.country}</Pill>}
             <MovementPill movement={movement} />
+            {atmosphere && <Pill tone={atmosphere.tone}>{atmosphere.label}</Pill>}
           </div>
         </div>
       </div>

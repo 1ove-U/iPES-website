@@ -6,7 +6,7 @@ import {
   IconSearch, IconPlus, IconEdit, IconTrash, IconClose, IconPin, Pill, MovementPill,
 } from "./ui";
 import { Avatar } from "./Avatar";
-import { ClubLogo } from "./ClubManager";
+import { ClubLogo, clubBannerGradient } from "./ClubManager";
 import { colors, table, th, thR, td, tdR, btnPrimary, iconBtnCyan, iconBtnRed } from "../lib/theme";
 import { rankMedal, rankColor, getMovement } from "../lib/scoring";
 
@@ -63,30 +63,40 @@ export const LeaderboardTab = ({
 
       {!search && top3.length >= 3 && (
         <div style={podiumWrap}>
-          {[top3[0], top3[1], top3[2]].map((p) => (
-            <div key={p.id} style={podiumCard(p.rank)} className={p.rank === 1 ? "gold-glow" : ""}>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-                <Avatar player={p} size={p.rank === 1 ? 52 : 44} radius={14} />
-              </div>
-              <div style={{ fontSize: p.rank === 1 ? 22 : 18, lineHeight: 1, marginBottom: 4 }}>{rankMedal(p.rank)}</div>
-              <button onClick={() => onOpenProfile(p)} style={{
-                background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0,
-                fontWeight: 800, fontSize: p.rank === 1 ? 16 : 14, marginBottom: 2, lineHeight: 1.3,
-              }}>{p.name}</button>
-              {p.club && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginBottom: 4 }}>
-                  <ClubLogo name={p.club} logoUrl={clubsByName?.get(p.club.toLowerCase())?.logoUrl} size={14} radius={4} />
-                  <span style={{ fontSize: 11, color: colors.dim }}>{p.club}</span>
+          {[top3[0], top3[1], top3[2]].map((p) => {
+            const club = p.club ? clubsByName?.get(p.club.toLowerCase()) : null;
+            const hasClubColors = club?.colorPrimary && club?.colorSecondary;
+            return (
+              <div key={p.id} style={podiumCard(p.rank)} className={p.rank === 1 ? "gold-glow" : ""}>
+                {hasClubColors && (
+                  <div style={{
+                    position: "absolute", top: 0, left: 0, right: 0, height: 4,
+                    borderRadius: "14px 14px 0 0", background: clubBannerGradient(club),
+                  }} />
+                )}
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+                  <Avatar player={p} size={p.rank === 1 ? 52 : 44} radius={14} />
                 </div>
-              )}
-              <div style={{ fontWeight: 800, fontSize: p.rank === 1 ? 26 : 22, color: rankColor(p.rank), fontVariantNumeric: "tabular-nums" }}>{p.score}</div>
-              <div style={{ fontSize: 11, color: colors.dim, marginTop: 2 }}>คะแนน</div>
-              <div style={{ marginTop: 12, display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
-                <Pill tone="gold">🏆 {p.champion}</Pill>
-                <Pill tone="cyan">{p.winRate.toFixed(1)}%</Pill>
+                <div style={{ fontSize: p.rank === 1 ? 22 : 18, lineHeight: 1, marginBottom: 4 }}>{rankMedal(p.rank)}</div>
+                <button onClick={() => onOpenProfile(p)} style={{
+                  background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0,
+                  fontWeight: 800, fontSize: p.rank === 1 ? 16 : 14, marginBottom: 2, lineHeight: 1.3,
+                }}>{p.name}</button>
+                {p.club && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginBottom: 4 }}>
+                    <ClubLogo name={p.club} logoUrl={club?.logoUrl} size={14} radius={4} />
+                    <span style={{ fontSize: 11, color: colors.dim }}>{p.club}</span>
+                  </div>
+                )}
+                <div style={{ fontWeight: 800, fontSize: p.rank === 1 ? 26 : 22, color: rankColor(p.rank), fontVariantNumeric: "tabular-nums" }}>{p.score}</div>
+                <div style={{ fontSize: 11, color: colors.dim, marginTop: 2 }}>คะแนน</div>
+                <div style={{ marginTop: 12, display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+                  <Pill tone="gold">🏆 {p.champion}</Pill>
+                  <Pill tone="cyan">{p.winRate.toFixed(1)}%</Pill>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -197,4 +207,3 @@ export const LeaderboardTab = ({
     </div>
   );
 };
-

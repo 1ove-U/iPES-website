@@ -44,9 +44,20 @@ export const ClubLogo = ({ name, logoUrl, size = 40, radius = 10 }) => {
   );
 };
 
+// Builds the CSS gradient string for a club's two-color theme. Falls back
+// to a neutral violet gradient (matching the site's default accent) when a
+// club has no custom colors set, so banners never look broken.
+export function clubBannerGradient(club, angle = 135) {
+  const c1 = club?.colorPrimary || "#a78bfa";
+  const c2 = club?.colorSecondary || "#22d3ee";
+  return `linear-gradient(${angle}deg, ${c1}, ${c2})`;
+}
+
 export const ClubForm = ({ initial, onSave, onClose }) => {
   const [name, setName] = useState(initial?.name || "");
   const [logoUrl, setLogoUrl] = useState(initial?.logoUrl || "");
+  const [colorPrimary, setColorPrimary] = useState(initial?.colorPrimary || "#a78bfa");
+  const [colorSecondary, setColorSecondary] = useState(initial?.colorSecondary || "#22d3ee");
 
   return (
     <div>
@@ -69,6 +80,29 @@ export const ClubForm = ({ initial, onSave, onClose }) => {
           placeholder="https://..." />
       </div>
 
+      <div style={{ marginBottom: 14 }}>
+        <label style={labelStyle}>สีประจำสโมสร์ (ไม่บังคับ)</label>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="color" value={colorPrimary} onChange={(e) => setColorPrimary(e.target.value)}
+              style={{ width: 44, height: 36, borderRadius: 8, border: "1px solid rgba(167,139,250,0.25)", background: "none", padding: 2 }} />
+            <span style={{ fontSize: 11, color: colors.faint }}>สีหลัก</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="color" value={colorSecondary} onChange={(e) => setColorSecondary(e.target.value)}
+              style={{ width: 44, height: 36, borderRadius: 8, border: "1px solid rgba(167,139,250,0.25)", background: "none", padding: 2 }} />
+            <span style={{ fontSize: 11, color: colors.faint }}>สีรอง</span>
+          </div>
+          <div style={{
+            flex: 1, height: 36, borderRadius: 8,
+            background: `linear-gradient(135deg, ${colorPrimary}, ${colorSecondary})`,
+          }} />
+        </div>
+        <div style={{ fontSize: 11, color: colors.faint, marginTop: 6 }}>
+          สีนี้จะใช้เป็นแบนเนอร์พื้นหลังการ์ดผู้เล่นในสังกัด และพื้นหลังหน้าสโมสร์
+        </div>
+      </div>
+
       <div style={{ fontSize: 11, color: colors.faint, marginBottom: 14, lineHeight: 1.6 }}>
         💡 ชื่อสโมสร์นี้ต้องตรงกับที่กรอกไว้ในช่อง &quot;สังกัด / สโมสร&quot; ของผู้เล่น (ไม่สนตัวพิมพ์ใหญ่-เล็ก)
         ถึงจะขึ้นโลโก้ในหน้าอันดับสโมสร์ให้อัตโนมัติ
@@ -77,7 +111,7 @@ export const ClubForm = ({ initial, onSave, onClose }) => {
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={onClose} style={{ ...btnGhost, flex: 1 }}>ยกเลิก</button>
         <button
-          onClick={() => { if (name.trim()) { onSave({ name: name.trim(), logoUrl: logoUrl.trim() }); onClose(); } }}
+          onClick={() => { if (name.trim()) { onSave({ name: name.trim(), logoUrl: logoUrl.trim(), colorPrimary, colorSecondary }); onClose(); } }}
           style={{ ...btnPrimary, flex: 2 }}
         >บันทึก</button>
       </div>

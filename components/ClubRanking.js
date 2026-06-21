@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Pill, EmptyState } from "./ui";
 import { Avatar } from "./Avatar";
-import { ClubLogo } from "./ClubManager";
+import { ClubLogo, clubBannerGradient } from "./ClubManager";
 import { colors, card } from "../lib/theme";
 import { aggregateClubs, rankColor } from "../lib/scoring";
 
@@ -25,8 +25,18 @@ export const ClubRankingTab = ({ ranked, clubsByName, onOpenProfile }) => {
       </div>
       {clubs.map((c) => {
         const isOpen = expanded === c.club;
+        const hasColors = c.colorPrimary && c.colorSecondary;
         return (
-          <div key={c.club} style={{ ...card, marginBottom: 12, padding: 0, overflow: "hidden" }}>
+          <div key={c.club} style={{
+            ...card, marginBottom: 12, padding: 0, overflow: "hidden", position: "relative",
+            borderLeft: hasColors ? `3px solid ${c.colorPrimary}` : card.border,
+          }}>
+            {hasColors && (
+              <div style={{
+                position: "absolute", inset: 0, opacity: 0.06, pointerEvents: "none",
+                background: clubBannerGradient(c),
+              }} />
+            )}
             <button
               onClick={() => setExpanded(isOpen ? null : c.club)}
               style={{

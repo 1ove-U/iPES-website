@@ -1,8 +1,9 @@
 // components/Bracket.js
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useLayoutEffect } from "react";
 import { Avatar } from "./Avatar";
+import { TeamLogo } from "./TeamManager";
 import { Pill, IconEdit, IconDownload, formatDate, VerifyCodeBadge } from "./ui";
 import { colors, card, btnPrimary, btnGhost, inputStyle, labelStyle } from "../lib/theme";
 import { roundLabel, decideWinner, totalRounds } from "../lib/bracket";
@@ -51,22 +52,31 @@ const RoundDeadlineRow = ({ isAdmin, deadline, onSave }) => {
   );
 };
 
-const MatchCard = ({ match, playersById, isAdmin, deadline, onOpenResult }) => {
+const MatchCard = ({ match, playersById, isAdmin, isTeamMode, deadline, onOpenResult }) => {
   const expired = deadlinePassed(deadline) && match.status !== "completed" && match.status !== "bye";
   const nameA = nameOf(playersById, match.playerAId);
   const nameB = match.playerBId === null && match.status === "bye" ? "BYE" : nameOf(playersById, match.playerBId);
   const pending = match.status === "waiting_prev";
   const clickable = isAdmin && match.status !== "bye" && (match.status === "completed" || (!pending && match.playerAId && (match.playerBId || expired)));
 
-  const Row = ({ id, name, score, isWinner }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", opacity: name ? 1 : 0.4 }}>
-      {id ? <Avatar player={playersById.get(id) || { name }} size={24} radius={7} /> : <div style={{ width: 24, height: 24, borderRadius: 7, background: "rgba(255,255,255,0.05)" }} />}
-      <span style={{ flex: 1, fontSize: 13, fontWeight: isWinner ? 800 : 500, color: isWinner ? "#fff" : colors.muted, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {name || "รอผลรอบก่อนหน้า"}
-      </span>
-      {score != null && <span style={{ fontWeight: 800, fontSize: 13, color: isWinner ? colors.cyan : colors.faint }}>{score}</span>}
-    </div>
-  );
+  const Row = ({ id, name, score, isWinner }) => {
+    const entity = id ? playersById.get(id) : null;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", opacity: name ? 1 : 0.4 }}>
+        {id ? (
+          isTeamMode
+            ? <TeamLogo name={entity?.name || name} logoUrl={entity?.logoUrl} size={24} radius={7} />
+            : <Avatar player={entity || { name }} size={24} radius={7} />
+        ) : (
+          <div style={{ width: 24, height: 24, borderRadius: 7, background: "rgba(255,255,255,0.05)" }} />
+        )}
+        <span style={{ flex: 1, fontSize: 13, fontWeight: isWinner ? 800 : 500, color: isWinner ? "#fff" : colors.muted, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {name || "รอผลรอบก่อนหน้า"}
+        </span>
+        {score != null && <span style={{ fontWeight: 800, fontSize: 13, color: isWinner ? colors.cyan : colors.faint }}>{score}</span>}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -102,7 +112,97 @@ const MatchCard = ({ match, playersById, isAdmin, deadline, onOpenResult }) => {
   );
 };
 
-export const BracketView = ({ tournament, matches, playersById, isAdmin, onOpenResult, onSetDeadline }) => {
+// Tracks which match IDs just transitioned into "completed" status (vs the
+// previous render) so their card can get a one-shot pulse animation instead
+// of pulsing every time the component re-renders for unrelated reasons.
+function useJustCompleted(matches) {
+  const prevStatusRef = useRef(new Map());
+  const [justCompleted, setJustCompleted] = useState(new Set());
+
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const newlyDone = new Set();
+    for (const m of matches) {
+      if (m.status === "completed" && prev.get(m.id) && prev.get(m.id) !== "completed") {
+        newlyDone.add(m.id);
+      }
+    }
+    if (newlyDone.size > 0) {
+      setJustCompleted(newlyDone);
+      const t = setTimeout(() => setJustCompleted(new Set()), 1200);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      prevStatusRef.current = new Map(matches.map((m) => [m.id, m.status]));
+      return () => clearTimeout(t);
+    }
+    prevStatusRef.current = new Map(matches.map((m) => [m.id, m.status]));
+  }, [matches]);
+
+  return justCompleted;
+}
+
+// Animated connector lines between rounds: measures each match card's
+// on-screen position via refs, then draws an SVG path between a match and
+// the two matches that feed into it. Recomputes on resize/scroll-container
+// changes. Pure CSS+SVG — no canvas/3D library, keeps the page light.
+const BracketConnectors = ({ containerRef, cardRefs, rounds }) => {
+  const [paths, setPaths] = useState([]);
+  const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
+
+  useLayoutEffect(() => {
+    const recompute = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const cRect = container.getBoundingClientRect();
+      const next = [];
+      for (let r = 1; r < rounds.length; r++) {
+        rounds[r].forEach((m, slot) => {
+          const toEl = cardRefs.current.get(m.id);
+          const feedA = rounds[r - 1][slot * 2];
+          const feedB = rounds[r - 1][slot * 2 + 1];
+          const fromAEl = feedA && cardRefs.current.get(feedA.id);
+          const fromBEl = feedB && cardRefs.current.get(feedB.id);
+          if (!toEl || !fromAEl || !fromBEl) return;
+          const toRect = toEl.getBoundingClientRect();
+          const aRect = fromAEl.getBoundingClientRect();
+          const bRect = fromBEl.getBoundingClientRect();
+          const x0 = aRect.right - cRect.left + container.scrollLeft;
+          const yA = aRect.top + aRect.height / 2 - cRect.top + container.scrollTop;
+          const yB = bRect.top + bRect.height / 2 - cRect.top + container.scrollTop;
+          const x1 = toRect.left - cRect.left + container.scrollLeft;
+          const yTo = toRect.top + toRect.height / 2 - cRect.top + container.scrollTop;
+          const midX = x0 + (x1 - x0) / 2;
+          next.push({
+            key: m.id,
+            d: `M${x0},${yA} L${midX},${yA} L${midX},${yB} M${midX},${(yA + yB) / 2} L${x1},${yTo}`,
+          });
+        });
+      }
+      setPaths(next);
+      setBoxSize({ w: container.scrollWidth, h: container.scrollHeight });
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    if (containerRef.current) ro.observe(containerRef.current);
+    window.addEventListener("resize", recompute);
+    return () => { ro.disconnect(); window.removeEventListener("resize", recompute); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rounds]);
+
+  if (paths.length === 0) return null;
+  return (
+    <svg
+      width={boxSize.w} height={boxSize.h}
+      style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 0 }}
+    >
+      {paths.map((p) => (
+        <path key={p.key} d={p.d} className="bracket-connector" fill="none"
+          stroke="rgba(167,139,250,0.3)" strokeWidth="1.5" />
+      ))}
+    </svg>
+  );
+};
+
+export const BracketView = ({ tournament, matches, playersById, isAdmin, isTeamMode, onOpenResult, onSetDeadline }) => {
   const size = tournament.bracketSize;
   const rounds = useMemo(() => {
     const rCount = totalRounds(size);
@@ -110,6 +210,10 @@ export const BracketView = ({ tournament, matches, playersById, isAdmin, onOpenR
       matches.filter((m) => m.round === r).sort((a, b) => a.slot - b.slot)
     );
   }, [matches, size]);
+
+  const containerRef = useRef(null);
+  const cardRefs = useRef(new Map());
+  const justCompleted = useJustCompleted(matches);
 
   return (
     <div>
@@ -129,15 +233,22 @@ export const BracketView = ({ tournament, matches, playersById, isAdmin, onOpenR
           </button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8 }}>
+      <div ref={containerRef} style={{ position: "relative", display: "flex", gap: 18, overflowX: "auto", paddingBottom: 8 }}>
+        <BracketConnectors containerRef={containerRef} cardRefs={cardRefs} rounds={rounds} />
         {rounds.map((roundMatches, r) => (
-          <div key={r} style={{ display: "flex", flexDirection: "column" }}>
+          <div key={r} style={{ display: "flex", flexDirection: "column", position: "relative", zIndex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: "#f1f0ff", marginBottom: 8 }}>{roundLabel(r, size)}</div>
             <RoundDeadlineRow isAdmin={isAdmin} deadline={tournament.deadlines?.[r]} onSave={(iso) => onSetDeadline(r, iso)} />
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-around", flex: 1 }}>
               {roundMatches.map((m) => (
-                <MatchCard key={m.id} match={m} playersById={playersById} isAdmin={isAdmin}
-                  deadline={tournament.deadlines?.[r]} onOpenResult={onOpenResult} />
+                <div
+                  key={m.id}
+                  ref={(el) => { if (el) cardRefs.current.set(m.id, el); else cardRefs.current.delete(m.id); }}
+                  className={justCompleted.has(m.id) ? "winner-pulse" : (m.status !== "waiting_prev" ? "advance-fade" : "")}
+                >
+                  <MatchCard match={m} playersById={playersById} isAdmin={isAdmin} isTeamMode={isTeamMode}
+                    deadline={tournament.deadlines?.[r]} onOpenResult={onOpenResult} />
+                </div>
               ))}
             </div>
           </div>

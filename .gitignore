@@ -1,4 +1,25 @@
-node_modules
+# Dependencies
+/node_modules
+
+# Next.js build output
+/.next/
+/out/
+
+# Environment variables — never commit these (Firebase web config is not
+# secret by nature, but keep local-only values out of git regardless so
+# each environment — your machine, Vercel — can set its own).
 .env
 .env.local
 .env*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor junk
+.DS_Store
+*.pem
+
+# Vercel
+.vercel

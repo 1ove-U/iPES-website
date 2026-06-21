@@ -35,6 +35,24 @@ service cloud.firestore {
                     && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Clubs: each doc is one club (name + logo image URL). Public read so
+    // the leaderboard/club ranking can show crests to everyone; admin-only
+    // write since only the admin manages club logos.
+    match /clubs/{clubId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Teams: each doc is one team for Team Mode brackets (name, logo,
+    // member player ids, squad size 3/4/5). Public read same as clubs;
+    // admin-only write since only the admin creates/edits teams.
+    match /teams/{teamId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     // Small metadata docs: rankingSnapshot (timestamp of the last "Ranking
     // Movement" snapshot) and rule (the competition rules page body).
     // Public read, admin-only write — same trust model as everything else.

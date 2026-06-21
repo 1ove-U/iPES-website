@@ -20,7 +20,7 @@ import {
 } from "firebase/auth";
 
 import { rankPlayers } from "../lib/scoring";
-import { combinePlayerStats, recentCompletedMatches, upcomingTournaments } from "../lib/stats";
+import { combinePlayerStats, recentCompletedMatches, upcomingTournaments, expandTeamMatches } from "../lib/stats";
 import { buildBracket, computeAdvancement, computeRetroactiveReset, totalRounds } from "../lib/bracket";
 import { Logo, Pill, IconShield, Modal, ConfirmDeleteModal, Spinner, formatDate } from "../components/ui";
 import { LoginModal } from "../components/LoginModal";
@@ -40,6 +40,7 @@ import { StatsRankingTab } from "../components/Stats";
 import { RuleTab, RuleForm } from "../components/Rule";
 import { RecentMatchesWidget, UpcomingTournamentWidget } from "../components/HomeWidgets";
 import { ClubManagerList, ClubForm } from "../components/ClubManager";
+import { TeamManagerList, TeamForm } from "../components/TeamManager";
 
 const NEWS_SEEN_KEY = "ipes_news_last_seen";
 
@@ -62,7 +63,7 @@ const s = {
     maxWidth: 1080, margin: "0 auto",
     display: "flex", alignItems: "center", gap: 12, height: 64,
   },
-  logoText: { fontWeight: 900, fontSize: 20, letterSpacing: "0.04em", color: "#fff", lineHeight: 1 },
+  logoText: { fontWeight: 900, fontSize: 16, letterSpacing: "0.02em", color: "#fff", lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   logoSub: { fontSize: 10, color: "#7c77a8", fontWeight: 600, letterSpacing: "0.18em", textTransform: "uppercase", marginTop: 2 },
   main: { maxWidth: 1080, margin: "0 auto", padding: "20px 16px 48px" },
   tabs: {
@@ -95,6 +96,18 @@ const TABS = [
   ["rule", "กฎการแข่งขัน"],
 ];
 
+// True if `teamId` appears in any tournament that hasn't finished yet
+// (status "active"/"draft") — used to warn the admin before deleting a
+// team that's mid-bracket, since that would leave dangling references in
+// the live sail. Tournaments that are already "completed" are fine to
+// ignore here; a team's stat contribution from a finished tournament is
+// already baked into history and won't break by deleting the team doc.
+function teamInActiveTournament(teamId, tournaments) {
+  return tournaments.some((t) =>
+    t.format === "team" && t.status !== "completed" && Array.isArray(t.playerIds) && t.playerIds.includes(teamId)
+  );
+}
+
 export default function App() {
   // ── Core data ──
   const [players, setPlayers] = useState([]);
@@ -103,6 +116,7 @@ export default function App() {
   const [matches, setMatches] = useState([]);
   const [rule, setRule] = useState(null);
   const [clubs, setClubs] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("leaderboard");
 
@@ -134,6 +148,12 @@ export default function App() {
   const [showAddClub, setShowAddClub] = useState(false);
   const [editClub, setEditClub] = useState(null);
   const [deleteClubTarget, setDeleteClubTarget] = useState(null);
+
+  // ── Team manager modals ──
+  const [showTeamManager, setShowTeamManager] = useState(false);
+  const [showAddTeam, setShowAddTeam] = useState(false);
+  const [editTeam, setEditTeam] = useState(null);
+  const [deleteTeamTarget, setDeleteTeamTarget] = useState(null);
 
   // ── Player Profile / Compare modals (store id only; the live ranked
   // object is looked up by id on every render so edits/deletes stay in sync) ──
@@ -206,6 +226,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unsub = onSnapshot(collection(db, "teams"), (snap) => {
+      setTeams(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Firestore error (teams):", err));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setIsAdmin(!!user);
       setAuthChecked(true);
@@ -241,6 +268,7 @@ export default function App() {
   const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const tournamentsById = useMemo(() => new Map(tournaments.map((t) => [t.id, t])), [tournaments]);
   const clubsByName = useMemo(() => new Map(clubs.map((c) => [(c.name || "").toLowerCase(), c])), [clubs]);
+  const teamsById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
   const matchesByTournament = useMemo(() => {
     const map = new Map();
     for (const m of matches) {
@@ -250,10 +278,16 @@ export default function App() {
     return map;
   }, [matches]);
 
+  // Personal player stats must see team results too (see lib/stats.js
+  // expandTeamMatches) — this expanded array is ONLY for per-player stat
+  // functions. Anything that displays real fixtures as-is (Recent Matches,
+  // the bracket view itself) keeps using the raw `matches` state directly.
+  const expandedMatches = useMemo(() => expandTeamMatches(matches, teamsById), [matches, teamsById]);
+
   const ranked = useMemo(() => {
-    const combined = players.map((p) => combinePlayerStats(p, matches, tournamentsById));
+    const combined = players.map((p) => combinePlayerStats(p, expandedMatches, tournamentsById, teamsById));
     return rankPlayers(combined);
-  }, [players, matches, tournamentsById]);
+  }, [players, expandedMatches, tournamentsById, teamsById]);
   const rankedById = useMemo(() => new Map(ranked.map((p) => [p.id, p])), [ranked]);
   const rankById = useMemo(() => new Map(ranked.map((p) => [p.id, p.rank])), [ranked]);
 
@@ -362,13 +396,14 @@ export default function App() {
   // ── Bracket creation: random draw + auto-BYE fill, all computed
   // client-side in lib/bracket.js — one atomic batch write, no Cloud
   // Functions needed. ──
-  const createBracketTournament = async ({ name, date, season, bracketSize, playerIds }) => {
+  const createBracketTournament = async ({ name, date, season, bracketSize, playerIds, format, teamSize }) => {
     const existingCodes = new Set(matches.map((m) => m.verifyCode).filter(Boolean));
     const builtMatches = buildBracket(playerIds, bracketSize, existingCodes); // throws Thai validation errors — let the form catch + alert them
     const tournamentRef = doc(collection(db, "tournaments"));
     const batch = writeBatch(db);
     batch.set(tournamentRef, {
       name, date, season: season || "", bracketSize, playerIds,
+      format: format || "solo", teamSize: teamSize || null,
       status: "active", createdAt: serverTimestamp(),
     });
     builtMatches.forEach((m) => {
@@ -404,6 +439,10 @@ export default function App() {
       const wasCompletedBefore = match.status === "completed" && !!match.winnerId;
       const isRetroactive = wasCompletedBefore && match.winnerId !== payload.winnerId;
       const finalRound = totalRounds(tournament.bracketSize) - 1;
+      // Team-format tournaments store TEAM ids in playerAId/playerBId/
+      // championId/winnerId — look names up in teamsById, not playersById,
+      // or every name resolves to undefined for team brackets.
+      const entityById = tournament.format === "team" ? teamsById : playersById;
 
       const batch = writeBatch(db);
       batch.update(doc(db, "matches", match.id), { ...payload, status: "completed" });
@@ -425,8 +464,8 @@ export default function App() {
 
       let tournamentUpdate = null;
       if (advancement?.tournamentComplete) {
-        const champ = playersById.get(advancement.championId);
-        const runnerUp = playersById.get(advancement.runnerUpId);
+        const champ = entityById.get(advancement.championId);
+        const runnerUp = entityById.get(advancement.runnerUpId);
         tournamentUpdate = {
           status: "completed",
           championId: advancement.championId,
@@ -456,7 +495,7 @@ export default function App() {
       try {
         const isLateRound = finalRound - match.round <= 1;
         if (!isRetroactive && isLateRound && payload.winnerId) {
-          const winnerName = playersById.get(payload.winnerId)?.name || "ผู้เล่น";
+          const winnerName = entityById.get(payload.winnerId)?.name || (tournament.format === "team" ? "ทีม" : "ผู้เล่น");
           const isFinal = match.round === finalRound;
           await addDoc(collection(db, "news"), {
             title: isFinal ? `🏆 ${winnerName} คว้าแชมป์ ${tournament.name}` : `${winnerName} ผ่านเข้ารอบชิงชนะเลิศ ${tournament.name}`,
@@ -570,6 +609,36 @@ export default function App() {
     }
   };
 
+  // ── Teams CRUD (name + logoUrl + size + memberIds) ──
+  const addTeam = async (form) => {
+    try {
+      await addDoc(collection(db, "teams"), { ...form, createdAt: serverTimestamp() });
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const updateTeam = async (id, form) => {
+    try {
+      await updateDoc(doc(db, "teams", id), { ...form });
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const deleteTeam = async (id) => {
+    try {
+      await deleteDoc(doc(db, "teams", id));
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setDeleteTeamTarget(null);
+    }
+  };
+
   // ── Ranking Movement snapshot: freezes current rank/score on every player
   // doc + stamps meta/rankingSnapshot, so next time getMovement() has a
   // baseline to compare against. No Cloud Functions/cron required. ──
@@ -601,6 +670,7 @@ export default function App() {
       ["matches", data.matches],
       ["news", data.news],
       ["clubs", data.clubs],
+      ["teams", data.teams],
     ];
     let batch = writeBatch(db);
     let count = 0;
@@ -643,6 +713,16 @@ export default function App() {
         .fade-in { animation: fadeIn .35s ease; }
         @keyframes glow { 0%,100% { box-shadow: 0 0 18px rgba(250,204,21,0.10); } 50% { box-shadow: 0 0 36px rgba(250,204,21,0.22); } }
         .gold-glow { animation: glow 3s ease-in-out infinite; }
+        @keyframes drawLine { from { stroke-dashoffset: 240; } to { stroke-dashoffset: 0; } }
+        .bracket-connector { stroke-dasharray: 240; animation: drawLine 0.7s ease forwards; }
+        @keyframes winnerPulse {
+          0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.5); }
+          60% { box-shadow: 0 0 0 10px rgba(74,222,128,0); }
+          100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+        }
+        .winner-pulse { animation: winnerPulse 1.1s ease-out 1; }
+        @keyframes advanceFade { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
+        .advance-fade { animation: advanceFade 0.5s ease; }
         @media (max-width: 640px) {
           .hide-mobile { display: none !important; }
         }
@@ -658,8 +738,8 @@ export default function App() {
       <header style={s.header}>
         <div style={s.headerInner}>
           <Logo size={38} />
-          <div style={{ flex: 1 }}>
-            <div style={s.logoText}>iPES</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={s.logoText}>iPES Ranking Series</div>
             <div style={s.logoSub}>Tournament Leaderboard</div>
           </div>
           <GlobalSearch
@@ -738,6 +818,7 @@ export default function App() {
                 tournaments={tournaments}
                 matchesByTournament={matchesByTournament}
                 playersById={rankedById}
+                teamsById={teamsById}
                 isAdmin={isAdmin}
                 onAdd={() => setShowAddTournament(true)}
                 onEdit={(t) => setEditTournament(t)}
@@ -748,7 +829,13 @@ export default function App() {
             )}
 
             {tab === "statsranking" && (
-              <StatsRankingTab ranked={ranked} onOpenProfile={(p) => setProfileOpenPlayerId(p.id)} />
+              <StatsRankingTab
+                ranked={ranked}
+                matches={expandedMatches}
+                tournamentsById={tournamentsById}
+                playersById={rankedById}
+                onOpenProfile={(p) => setProfileOpenPlayerId(p.id)}
+              />
             )}
 
             {tab === "halloffame" && (
@@ -795,6 +882,7 @@ export default function App() {
                 news={news}
                 rule={rule}
                 clubs={clubs}
+                teams={teams}
                 lastSnapshotAt={formatDate(lastSnapshotAt)}
                 snapshotLoading={snapshotLoading}
                 onSnapshot={handleSnapshot}
@@ -802,6 +890,7 @@ export default function App() {
                 onAddTournament={() => setShowAddTournament(true)}
                 onAddNews={() => setShowAddNews(true)}
                 onManageClubs={() => setShowClubManager(true)}
+                onManageTeams={() => setShowTeamManager(true)}
                 onImportJSON={onImportJSON}
               />
             )}
@@ -837,6 +926,7 @@ export default function App() {
         <Modal title="เพิ่มทัวร์นาเมนต์" onClose={() => setShowAddTournament(false)}>
           <TournamentCreateChooser
             players={players}
+            teams={teams}
             onCreateBracket={createBracketTournament}
             onCreateLegacy={addTournament}
             onClose={() => setShowAddTournament(false)}
@@ -862,7 +952,7 @@ export default function App() {
         <Modal title="กรอกผลการแข่งขัน" onClose={() => setMatchResultTarget(null)}>
           <MatchResultForm
             match={matchResultTarget.match}
-            playersById={rankedById}
+            playersById={matchResultTarget.tournament?.format === "team" ? teamsById : rankedById}
             allowWinnerOnly={matchDeadlineExpired(matchResultTarget.match, matchResultTarget.tournament)}
             onSave={(payload) => recordMatchResult(matchResultTarget.match, matchResultTarget.tournament, payload)}
             onClose={() => setMatchResultTarget(null)}
@@ -931,15 +1021,56 @@ export default function App() {
         />
       )}
 
+      {/* ── Team manager modals ── */}
+      {showTeamManager && (
+        <Modal title="จัดการทีม" onClose={() => setShowTeamManager(false)}>
+          <TeamManagerList
+            teams={teams}
+            playersById={rankedById}
+            onAdd={() => setShowAddTeam(true)}
+            onEdit={(t) => setEditTeam(t)}
+            onDeleteRequest={(t) => setDeleteTeamTarget(t)}
+            onClose={() => setShowTeamManager(false)}
+          />
+        </Modal>
+      )}
+
+      {showAddTeam && (
+        <Modal title="สร้างทีมใหม่" onClose={() => setShowAddTeam(false)}>
+          <TeamForm players={ranked} onSave={addTeam} onClose={() => setShowAddTeam(false)} />
+        </Modal>
+      )}
+
+      {editTeam && (
+        <Modal title={`แก้ไขทีม: ${editTeam.name}`} onClose={() => setEditTeam(null)}>
+          <TeamForm initial={editTeam} players={ranked} onSave={(form) => updateTeam(editTeam.id, form)} onClose={() => setEditTeam(null)} />
+        </Modal>
+      )}
+
+      {deleteTeamTarget && (
+        <ConfirmDeleteModal
+          title="ยืนยันการลบทีม"
+          message={
+            teamInActiveTournament(deleteTeamTarget.id, tournaments)
+              ? <>ทีม <b style={{ color: "#f87171" }}>{deleteTeamTarget.name}</b> กำลังอยู่ในทัวร์นาเมนต์ที่ยังไม่จบ การลบจะทำให้สายแข่งแสดงผลผิดพลาด แนะนำให้รอทัวร์นาเมนต์จบก่อนค่อยลบ ยืนยันจะลบเลยหรือไม่?</>
+              : <>คุณต้องการลบทีม <b style={{ color: "#f87171" }}>{deleteTeamTarget.name}</b> หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้ (สถิติที่สมาชิกได้รับไปแล้วจากทัวร์นาเมนต์ที่จบแล้วยังคงอยู่)</>
+          }
+          onCancel={() => setDeleteTeamTarget(null)}
+          onConfirm={() => deleteTeam(deleteTeamTarget.id)}
+        />
+      )}
+
       {/* ── Player Profile modal ── */}
       {profilePlayer && (
         <PlayerProfileModal
           player={profilePlayer}
           tournaments={tournaments}
-          matches={matches}
+          matches={expandedMatches}
           playersById={rankedById}
           tournamentsById={tournamentsById}
           rankById={rankById}
+          clubsByName={clubsByName}
+          teamsById={teamsById}
           isAdmin={isAdmin}
           onClose={() => setProfileOpenPlayerId(null)}
           onEdit={(p) => { setProfileOpenPlayerId(null); setEditPlayer(p); }}
