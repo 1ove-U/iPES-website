@@ -2,8 +2,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { IconPlus, IconShield, IconTrophy, IconNews, IconDownload, SectionHeader } from "./ui";
+import { IconPlus, IconShield, IconTrophy, IconNews, IconDownload, SectionHeader, formatDate } from "./ui";
 import { colors, card, btnPrimary, btnGhost } from "../lib/theme";
+import { matchesForPlayer, headToHead } from "../lib/stats";
 
 const StatChip = ({ value, label }) => (
   <div style={{ ...card, flex: "1 1 130px", textAlign: "center" }}>
@@ -44,7 +45,7 @@ const downloadBlob = (filename, text, type) => {
   URL.revokeObjectURL(url);
 };
 
-const BackupRestoreSection = ({ players, tournaments, matches, news, rule, clubs, teams, onImportJSON }) => {
+const BackupRestoreSection = ({ players, ranked, tournaments, tournamentsById, matches, news, rule, clubs, teams, onImportJSON }) => {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -57,6 +58,59 @@ const BackupRestoreSection = ({ players, tournaments, matches, news, rule, clubs
     const cols = ["name", "club", "champion", "runnerUp", "wins", "losses", "participated", "country"];
     const rows = [cols.join(",")].concat(players.map((p) => cols.map((c) => toCsvCell(p[c])).join(",")));
     downloadBlob(`ipes-players-${new Date().toISOString().slice(0, 10)}.csv`, rows.join("\n"), "text/csv");
+  };
+
+  // ── Deep stats export #1: one row per player with every derived stat
+  // already computed elsewhere (rankPlayers/combinePlayerStats) — score,
+  // win rate, goals, streaks — so an admin can pivot/sort/chart this in
+  // Excel without recomputing anything by hand. ──────────────────────────
+  const exportStatsCSV = () => {
+    const cols = [
+      "rank", "name", "club", "score", "champion", "runnerUp", "participated",
+      "wins", "losses", "winRate", "goalsFor", "goalsAgainst",
+      "bestWinStreak", "currentWinStreak", "matchesFromBracket",
+    ];
+    const header = ["อันดับ", "ชื่อ", "สโมสร์", "คะแนน", "แชมป์", "รองแชมป์", "เข้าร่วม",
+      "ชนะ", "แพ้", "อัตราชนะ(%)", "ยิงได้", "เสีย", "สตรีคชนะสูงสุด", "สตรีคชนะปัจจุบัน", "แมตช์จากสายแข่ง"];
+    const rows = [header.join(",")].concat(
+      ranked.map((p) => cols.map((c) => {
+        const v = c === "winRate" ? (p.winRate || 0).toFixed(1) : p[c];
+        return toCsvCell(v);
+      }).join(","))
+    );
+    downloadBlob(`ipes-stats-deep-${new Date().toISOString().slice(0, 10)}.csv`, rows.join("\n"), "text/csv");
+  };
+
+  // ── Deep stats export #2: every completed match a player took part in,
+  // one row per match, across all players — full match history in one
+  // sheet. Includes the head-to-head record between the two specific
+  // players in that row, computed at export time (not stored anywhere). ─
+  const exportMatchHistoryCSV = () => {
+    const header = ["วันที่", "ทัวร์นาเมนต์", "ผู้เล่น", "คู่แข่ง", "ผล", "สกอร์ผู้เล่น", "สกอร์คู่แข่ง", "สถิติเจอกันสะสม (ชนะ-แพ้)"];
+    const rows = [header.join(",")];
+    for (const p of ranked) {
+      const played = matchesForPlayer(matches, p.id, tournamentsById);
+      for (const m of played) {
+        const oppId = m.playerAId === p.id ? m.playerBId : m.playerAId;
+        const opp = ranked.find((r) => r.id === oppId);
+        const myScore = m.playerAId === p.id ? m.scoreA : m.scoreB;
+        const oppScore = m.playerAId === p.id ? m.scoreB : m.scoreA;
+        const won = m.winnerId === p.id;
+        const h2h = opp ? headToHead(matches, p.id, opp.id) : null;
+        const t = tournamentsById.get(m.tournamentId);
+        rows.push([
+          toCsvCell(formatDate(m.matchDate || t?.date)),
+          toCsvCell(t?.name || ""),
+          toCsvCell(p.name),
+          toCsvCell(opp?.name || "ผู้เล่นที่ถูกลบ"),
+          toCsvCell(won ? "ชนะ" : "แพ้"),
+          toCsvCell(myScore ?? ""),
+          toCsvCell(oppScore ?? ""),
+          toCsvCell(h2h ? `${h2h.winsA}-${h2h.winsB}` : ""),
+        ].join(","));
+      }
+    }
+    downloadBlob(`ipes-match-history-${new Date().toISOString().slice(0, 10)}.csv`, rows.join("\n"), "text/csv");
   };
 
   const handleFile = async (e) => {
@@ -99,8 +153,18 @@ const BackupRestoreSection = ({ players, tournaments, matches, news, rule, clubs
           <IconDownload />Export JSON (สำรองทั้งหมด)
         </button>
         <button onClick={exportCSV} style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 6 }}>
-          <IconDownload />Export CSV (ผู้เล่น)
+          <IconDownload />Export CSV (ผู้เล่นพื้นฐาน)
         </button>
+        {ranked && (
+          <button onClick={exportStatsCSV} style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 6 }}>
+            <IconDownload />Export CSV (สถิติเจาะลึก)
+          </button>
+        )}
+        {ranked && tournamentsById && (
+          <button onClick={exportMatchHistoryCSV} style={{ ...btnGhost, display: "flex", alignItems: "center", gap: 6 }}>
+            <IconDownload />Export CSV (ประวัติแมตช์ทั้งหมด)
+          </button>
+        )}
         <button onClick={() => fileRef.current?.click()} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>
           {busy ? "กำลังนำเข้า..." : "นำเข้าไฟล์ Backup (JSON)"}
         </button>
@@ -111,7 +175,7 @@ const BackupRestoreSection = ({ players, tournaments, matches, news, rule, clubs
 };
 
 export const AdminDashboardTab = ({
-  players, tournaments, matches, news, rule, clubs, teams, lastSnapshotAt, snapshotLoading,
+  players, ranked, tournaments, tournamentsById, matches, news, rule, clubs, teams, lastSnapshotAt, snapshotLoading,
   onSnapshot, onAddPlayer, onAddTournament, onAddNews, onManageClubs, onManageTeams, onImportJSON,
 }) => (
   <div className="fade-in">
@@ -124,7 +188,18 @@ export const AdminDashboardTab = ({
       <StatChip value={news.length} label="ข่าวที่ประกาศ" />
     </div>
 
-    <BackupRestoreSection players={players} tournaments={tournaments} matches={matches || []} news={news} rule={rule} clubs={clubs} teams={teams} onImportJSON={onImportJSON} />
+    <BackupRestoreSection
+      players={players}
+      ranked={ranked}
+      tournaments={tournaments}
+      tournamentsById={tournamentsById}
+      matches={matches || []}
+      news={news}
+      rule={rule}
+      clubs={clubs}
+      teams={teams}
+      onImportJSON={onImportJSON}
+    />
 
     <div style={{ ...card, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

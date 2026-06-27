@@ -1,13 +1,14 @@
 // components/PlayerProfile.js
 "use client";
 
+import { useState, useEffect } from "react";
 import { Avatar } from "./Avatar";
 import { Modal, Pill, MovementPill, IconEdit, IconTrash, IconSwap, IconFacebook, Sparkline, formatDate } from "./ui";
 import { colors, card, btnGhost, btnDanger, btnPrimary } from "../lib/theme";
 import { getMovement, tournamentsForPlayer, rankMedal, rankColor } from "../lib/scoring";
 import { matchesForPlayer, recentForm, headToHead, detectUpsets, winRateInWindow, TREND_WINDOWS } from "../lib/stats";
 import { computeBadges } from "../lib/achievements";
-import { clubBannerGradient } from "./ClubManager";
+
 
 // ── Stadium Atmosphere: the header glow reacts to the player's current
 // form — on fire while on a hot win streak, cold/frosty during a losing
@@ -71,13 +72,12 @@ export const PlayerProfileModal = ({
         background: atmosphere ? `radial-gradient(circle at 30% 30%, ${atmosphere.glow}, transparent 70%)` : "none",
         border: atmosphere ? `1px solid ${atmosphere.ring}` : "none",
       }}>
-        {hasClubColors && (
-          <div style={{
-            position: "absolute", top: 0, left: 14, right: 14, height: 3, borderRadius: 2,
-            background: clubBannerGradient(club),
-          }} />
-        )}
-        <Avatar player={player} size={72} radius={16} />
+        <span style={{
+          display: "inline-flex", borderRadius: 18, flexShrink: 0,
+          boxShadow: hasClubColors ? `0 0 0 2px ${club.colorPrimary}` : "none",
+        }}>
+          <Avatar player={player} size={72} radius={16} />
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ fontWeight: 800, fontSize: 19, color: "#fff" }}>{player.name}</div>
@@ -190,6 +190,8 @@ export const PlayerProfileModal = ({
         </div>
       )}
 
+      <ShareLinkSection player={player} />
+
       <div style={{ display: "flex", gap: 10 }}>
         {onCompare && (
           <button onClick={() => onCompare(player)} style={{ ...btnPrimary, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -208,5 +210,60 @@ export const PlayerProfileModal = ({
         )}
       </div>
     </Modal>
+  );
+};
+
+// ── Personal player link (no login needed) ───────────────────────────────
+// Every player's profile has a stable, shareable URL (current page + ?p=
+// their id) that opens straight to this modal — works without any account
+// system. A QR code (rendered via a free public QR image API — no library,
+// no Firebase Storage cost, same external-link pattern as club/team logos)
+// makes it easy to scan-and-open on someone else's phone, e.g. printed
+// next to a player's seat at an in-person event.
+const ShareLinkSection = ({ player }) => {
+  const [copied, setCopied] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [url, setUrl] = useState("");
+
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("p", player.id);
+      setUrl(u.toString());
+    } catch (e) { setUrl(""); }
+  }, [player.id]);
+
+  if (!url) return null;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); } catch (e) { /* clipboard unavailable — link is still visible to copy by hand */ }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: 14, padding: "12px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: colors.faint, marginBottom: 4 }}>ลิงก์ส่วนตัวของผู้เล่นคนนี้</div>
+          <div style={{ fontSize: 12, color: colors.violetLight, fontFamily: "ui-monospace, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {url}
+          </div>
+        </div>
+        <button onClick={copy} style={{ ...btnGhost, flexShrink: 0, padding: "8px 12px", fontSize: 12, color: copied ? colors.green : undefined }}>
+          {copied ? "คัดลอกแล้ว ✓" : "คัดลอก"}
+        </button>
+        <button onClick={() => setShowQr((v) => !v)} style={{ ...btnGhost, flexShrink: 0, padding: "8px 12px", fontSize: 12 }}>
+          {showQr ? "ซ่อน QR" : "QR"}
+        </button>
+      </div>
+      {showQr && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qrSrc} alt="QR code" width={160} height={160} style={{ borderRadius: 10, background: "#fff", padding: 6 }} />
+        </div>
+      )}
+    </div>
   );
 };

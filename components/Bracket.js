@@ -127,14 +127,24 @@ function useJustCompleted(matches) {
         newlyDone.add(m.id);
       }
     }
-    if (newlyDone.size > 0) {
-      setJustCompleted(newlyDone);
-      const t = setTimeout(() => setJustCompleted(new Set()), 1200);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      prevStatusRef.current = new Map(matches.map((m) => [m.id, m.status]));
-      return () => clearTimeout(t);
-    }
     prevStatusRef.current = new Map(matches.map((m) => [m.id, m.status]));
+    if (newlyDone.size === 0) return;
+
+    // Merge into whatever's already pulsing (instead of replacing it) so
+    // two matches completing within the same ~1.2s window don't cut each
+    // other's animation short — each newly-done id gets its own timer that
+    // removes just itself when its turn is up.
+    setJustCompleted((prevSet) => new Set([...prevSet, ...newlyDone]));
+    const timers = [...newlyDone].map((id) =>
+      setTimeout(() => {
+        setJustCompleted((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+          return next;
+        });
+      }, 1200)
+    );
+    return () => timers.forEach(clearTimeout);
   }, [matches]);
 
   return justCompleted;

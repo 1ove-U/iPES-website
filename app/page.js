@@ -19,8 +19,8 @@ import {
   signOut,
 } from "firebase/auth";
 
-import { rankPlayers } from "../lib/scoring";
-import { combinePlayerStats, recentCompletedMatches, upcomingTournaments, expandTeamMatches } from "../lib/stats";
+import { rankPlayers, aggregateClubs, buildMonthlySummary } from "../lib/scoring";
+import { combinePlayerStats, recentCompletedMatches, upcomingTournaments, expandTeamMatches, pendingLobbyMatches, formTableRanking } from "../lib/stats";
 import { buildBracket, computeAdvancement, computeRetroactiveReset, totalRounds } from "../lib/bracket";
 import { Logo, Pill, IconShield, Modal, ConfirmDeleteModal, Spinner, formatDate } from "../components/ui";
 import { LoginModal } from "../components/LoginModal";
@@ -39,8 +39,13 @@ import { AdminDashboardTab } from "../components/Admin";
 import { StatsRankingTab } from "../components/Stats";
 import { RuleTab, RuleForm } from "../components/Rule";
 import { RecentMatchesWidget, UpcomingTournamentWidget } from "../components/HomeWidgets";
+import { LiveLobbyTab } from "../components/LiveLobby";
 import { ClubManagerList, ClubForm } from "../components/ClubManager";
+import { ClubDetailModal } from "../components/ClubDetail";
+import { SummaryListTab, GenerateSummaryForm, SummaryDetailModal } from "../components/Summaries";
+import { HelpTab } from "../components/Help";
 import { TeamManagerList, TeamForm } from "../components/TeamManager";
+import { TeamRankingTab } from "../components/TeamRanking";
 
 const NEWS_SEEN_KEY = "ipes_news_last_seen";
 
@@ -85,16 +90,31 @@ const s = {
   },
 };
 
-const TABS = [
+// Primary tabs stay directly visible — these are the ones people check
+// most often (live competition state: standings, who's playing next,
+// brackets, news). Less-frequently-needed reference/extra content moves
+// into the "เพิ่มเติม" (More) menu so the tab bar doesn't read as
+// overwhelming on a phone, without removing anything — everything is
+// still one tap away, just grouped sensibly.
+const PRIMARY_TABS = [
   ["leaderboard", "อันดับ"],
+  ["lobby", "ห้องรอแมตช์"],
   ["clubs", "สโมสร"],
-  ["statsranking", "สถิติยิง/สตรีค"],
+  ["teamranking", "อันดับทีม"],
   ["tournaments", "ทัวร์นาเมนต์"],
-  ["halloffame", "หอเกียรติยศ"],
   ["news", "ข่าว"],
-  ["dashboard", "สถิติ"],
-  ["rule", "กฎการแข่งขัน"],
 ];
+
+const MORE_TABS = [
+  ["statsranking", "สถิติยิง/สตรีค"],
+  ["halloffame", "หอเกียรติยศ"],
+  ["dashboard", "สถิติ"],
+  ["summaries", "สรุปรายเดือน"],
+  ["rule", "กฎการแข่งขัน"],
+  ["help", "ช่วยด้วย"],
+];
+
+const TABS = [...PRIMARY_TABS, ...MORE_TABS];
 
 // True if `teamId` appears in any tournament that hasn't finished yet
 // (status "active"/"draft") — used to warn the admin before deleting a
@@ -117,8 +137,11 @@ export default function App() {
   const [rule, setRule] = useState(null);
   const [clubs, setClubs] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("leaderboard");
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [jumpToTournamentId, setJumpToTournamentId] = useState(null);
 
   // ── Auth ──
   const [isAdmin, setIsAdmin] = useState(false);
@@ -148,12 +171,18 @@ export default function App() {
   const [showAddClub, setShowAddClub] = useState(false);
   const [editClub, setEditClub] = useState(null);
   const [deleteClubTarget, setDeleteClubTarget] = useState(null);
+  const [selectedClub, setSelectedClub] = useState(null);
 
   // ── Team manager modals ──
   const [showTeamManager, setShowTeamManager] = useState(false);
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [editTeam, setEditTeam] = useState(null);
   const [deleteTeamTarget, setDeleteTeamTarget] = useState(null);
+
+  // ── Summary modals ──
+  const [showGenerateSummary, setShowGenerateSummary] = useState(false);
+  const [selectedSummary, setSelectedSummary] = useState(null);
+  const [deleteSummaryTarget, setDeleteSummaryTarget] = useState(null);
 
   // ── Player Profile / Compare modals (store id only; the live ranked
   // object is looked up by id on every render so edits/deletes stay in sync) ──
@@ -233,6 +262,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const unsub = onSnapshot(collection(db, "summaries"), (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.generatedAt || "").localeCompare(a.generatedAt || ""));
+      setSummaries(list);
+    }, (err) => console.error("Firestore error (summaries):", err));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setIsAdmin(!!user);
       setAuthChecked(true);
@@ -293,11 +331,31 @@ export default function App() {
 
   const recentMatches = useMemo(() => recentCompletedMatches(matches, tournamentsById, 6), [matches, tournamentsById]);
   const upcomingTs = useMemo(() => upcomingTournaments(tournaments, 4), [tournaments]);
+  const lobbyMatches = useMemo(() => pendingLobbyMatches(matches, tournaments), [matches, tournaments]);
 
   const latestNews = pickLatestNews(news);
   const profilePlayer = profileOpenPlayerId ? rankedById.get(profileOpenPlayerId) || null : null;
   const comparePlayer = compareOpenPlayerId ? rankedById.get(compareOpenPlayerId) || null : null;
-  const tabsWithAdmin = isAdmin ? [...TABS, ["admin", "Admin"]] : TABS;
+  const moreTabsWithAdmin = isAdmin ? [...MORE_TABS, ["admin", "Admin"]] : MORE_TABS;
+
+  // ── Personal player link (no login needed) ──
+  // A player's own shareable URL is /?p=<id> — opens straight to their
+  // profile modal on load. This only runs once, the first time `ranked`
+  // actually has data (so it works even though players load asynchronously
+  // from Firestore), and only if the URL really has a `p` param — it never
+  // touches the URL or browser history on its own otherwise.
+  const [didOpenFromUrl, setDidOpenFromUrl] = useState(false);
+  useEffect(() => {
+    if (didOpenFromUrl || ranked.length === 0) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pid = params.get("p");
+      if (pid && rankedById.has(pid)) {
+        setProfileOpenPlayerId(pid);
+      }
+    } catch (e) { /* ignore — e.g. window unavailable during SSR pass */ }
+    setDidOpenFromUrl(true);
+  }, [ranked, rankedById, didOpenFromUrl]);
 
   const matchDeadlineExpired = (match, tournament) => {
     const iso = tournament?.deadlines?.[match.round];
@@ -319,10 +377,10 @@ export default function App() {
 
   // ── Player CRUD ──
   const addPlayer = async (form) => {
-    const { name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio } = form;
+    const { name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio, facebookUrl } = form;
     try {
       await addDoc(collection(db, "players"), {
-        name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio,
+        name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio, facebookUrl,
       });
       alert("เพิ่มผู้เล่นสำเร็จ");
     } catch (err) {
@@ -331,10 +389,10 @@ export default function App() {
     }
   };
   const updatePlayer = async (form) => {
-    const { name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio } = form;
+    const { name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio, facebookUrl } = form;
     try {
       await updateDoc(doc(db, "players", editPlayer.id), {
-        name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio,
+        name, club, champion, runnerUp, wins, losses, participated, avatarId, avatarUrl, country, bio, facebookUrl,
       });
       alert("แก้ไขข้อมูลผู้เล่นสำเร็จ");
     } catch (err) {
@@ -639,6 +697,31 @@ export default function App() {
     }
   };
 
+  // ── Periodic Summary (monthly/season recap, generated on demand) ──
+  const generateSummary = async (label) => {
+    try {
+      const clubsAgg = aggregateClubs(ranked, clubsByName);
+      const formRows = formTableRanking(expandedMatches, ranked, tournamentsById, 5);
+      const summary = buildMonthlySummary(label, ranked, formRows, clubsAgg);
+      await addDoc(collection(db, "summaries"), summary);
+      alert(`สร้างสรุป "${label}" สำเร็จ`);
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    }
+  };
+
+  const deleteSummary = async (id) => {
+    try {
+      await deleteDoc(doc(db, "summaries", id));
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setDeleteSummaryTarget(null);
+    }
+  };
+
   // ── Ranking Movement snapshot: freezes current rank/score on every player
   // doc + stamps meta/rankingSnapshot, so next time getMovement() has a
   // baseline to compare against. No Cloud Functions/cron required. ──
@@ -771,12 +854,61 @@ export default function App() {
 
       {/* Main */}
       <main style={s.main}>
-        <div style={s.tabs}>
-          {tabsWithAdmin.map(([key, label]) => (
-            <button key={key} style={s.tab(tab === key)} onClick={() => setTab(key)}>
-              {label}{key === "news" && hasUnreadNews && <span style={s.unreadDot} />}
-            </button>
-          ))}
+        <div style={{ position: "relative", marginBottom: 22, display: "flex", gap: 6, alignItems: "stretch" }}>
+          <div style={{ ...s.tabs, marginBottom: 0, flex: 1, minWidth: 0 }}>
+            {PRIMARY_TABS.map(([key, label]) => (
+              <button key={key} style={s.tab(tab === key)} onClick={() => { setTab(key); setShowMoreMenu(false); }}>
+                {label}{key === "news" && hasUnreadNews && <span style={s.unreadDot} />}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setShowMoreMenu((v) => !v)}
+            style={{
+              ...s.tab(moreTabsWithAdmin.some(([key]) => key === tab)),
+              flexShrink: 0, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(167,139,250,0.15)",
+              borderRadius: 12,
+            }}
+          >
+            เพิ่มเติม {showMoreMenu ? "▲" : "▼"}
+          </button>
+
+          {showMoreMenu && (
+            <>
+              <div onClick={() => setShowMoreMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 199 }} />
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
+                background: "#150f2e", border: "1px solid rgba(167,139,250,0.25)", borderRadius: 12,
+                padding: 6, minWidth: 180, boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+              }}>
+                {moreTabsWithAdmin.map(([key, label]) => (
+                  <button key={key} onClick={() => { setTab(key); setShowMoreMenu(false); }} style={{
+                    display: "block", width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8,
+                    background: tab === key ? "rgba(34,211,238,0.1)" : "none", border: "none", cursor: "pointer",
+                    color: tab === key ? "#22d3ee" : "#e8e6f5", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+                    whiteSpace: "nowrap",
+                  }}>
+                    {label}
+                  </button>
+                ))}
+                {isAdmin && (
+                  <a
+                    href="/tv" target="_blank" rel="noopener noreferrer"
+                    onClick={() => setShowMoreMenu(false)}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left", padding: "9px 12px", borderRadius: 8,
+                      background: "none", border: "none", cursor: "pointer", textDecoration: "none",
+                      color: "#e8e6f5", fontSize: 13, fontWeight: 600, fontFamily: "inherit", whiteSpace: "nowrap",
+                      borderTop: "1px solid rgba(167,139,250,0.12)", marginTop: 4, paddingTop: 12,
+                    }}
+                  >
+                    🖥️ เปิดโหมดจอทีวี
+                  </a>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {loading && <Spinner />}
@@ -810,7 +942,32 @@ export default function App() {
             )}
 
             {tab === "clubs" && (
-              <ClubRankingTab ranked={ranked} clubsByName={clubsByName} onOpenProfile={(p) => setProfileOpenPlayerId(p.id)} />
+              <ClubRankingTab
+                ranked={ranked}
+                clubsByName={clubsByName}
+                tournaments={tournaments}
+                onOpenProfile={(p) => setProfileOpenPlayerId(p.id)}
+                onOpenClub={(c) => setSelectedClub(c)}
+              />
+            )}
+
+            {tab === "teamranking" && (
+              <TeamRankingTab
+                teams={teams}
+                matches={matches}
+                tournaments={tournaments}
+                playersById={rankedById}
+                onOpenProfile={(p) => setProfileOpenPlayerId(p.id)}
+              />
+            )}
+
+            {tab === "lobby" && (
+              <LiveLobbyTab
+                lobbyMatches={lobbyMatches}
+                playersById={rankedById}
+                teamsById={teamsById}
+                onGoTournament={(t) => { setJumpToTournamentId(t.id); setTab("tournaments"); }}
+              />
             )}
 
             {tab === "tournaments" && (
@@ -825,6 +982,7 @@ export default function App() {
                 onDeleteRequest={(t) => setDeleteTournamentTarget(t)}
                 onOpenResult={onOpenResult}
                 onSetDeadline={onSetDeadline}
+                initialExpandedId={jumpToTournamentId}
               />
             )}
 
@@ -870,14 +1028,28 @@ export default function App() {
               />
             )}
 
+            {tab === "summaries" && (
+              <SummaryListTab
+                summaries={summaries}
+                isAdmin={isAdmin}
+                onGenerate={() => setShowGenerateSummary(true)}
+                onOpen={(s) => setSelectedSummary(s)}
+                onDeleteRequest={(s) => setDeleteSummaryTarget(s)}
+              />
+            )}
+
             {tab === "rule" && (
               <RuleTab rule={rule} isAdmin={isAdmin} onEdit={() => setShowEditRule(true)} />
             )}
 
+            {tab === "help" && <HelpTab />}
+
             {tab === "admin" && isAdmin && (
               <AdminDashboardTab
                 players={players}
+                ranked={ranked}
                 tournaments={tournaments}
+                tournamentsById={tournamentsById}
                 matches={matches}
                 news={news}
                 rule={rule}
@@ -992,8 +1164,8 @@ export default function App() {
         <Modal title="จัดการโลโก้สโมสร์" onClose={() => setShowClubManager(false)}>
           <ClubManagerList
             clubs={clubs}
-            onAdd={() => setShowAddClub(true)}
-            onEdit={(c) => setEditClub(c)}
+            onAdd={() => { setShowClubManager(false); setShowAddClub(true); }}
+            onEdit={(c) => { setShowClubManager(false); setEditClub(c); }}
             onDeleteRequest={(c) => setDeleteClubTarget(c)}
             onClose={() => setShowClubManager(false)}
           />
@@ -1001,14 +1173,14 @@ export default function App() {
       )}
 
       {showAddClub && (
-        <Modal title="เพิ่มสโมสร์" onClose={() => setShowAddClub(false)}>
-          <ClubForm onSave={addClub} onClose={() => setShowAddClub(false)} />
+        <Modal title="เพิ่มสโมสร์" onClose={() => { setShowAddClub(false); setShowClubManager(true); }}>
+          <ClubForm onSave={addClub} onClose={() => { setShowAddClub(false); setShowClubManager(true); }} />
         </Modal>
       )}
 
       {editClub && (
-        <Modal title="แก้ไขสโมสร์" onClose={() => setEditClub(null)}>
-          <ClubForm initial={editClub} onSave={(form) => updateClub(editClub.id, form)} onClose={() => setEditClub(null)} />
+        <Modal title="แก้ไขสโมสร์" onClose={() => { setEditClub(null); setShowClubManager(true); }}>
+          <ClubForm initial={editClub} onSave={(form) => updateClub(editClub.id, form)} onClose={() => { setEditClub(null); setShowClubManager(true); }} />
         </Modal>
       )}
 
@@ -1021,14 +1193,24 @@ export default function App() {
         />
       )}
 
+      {selectedClub && (
+        <ClubDetailModal
+          club={selectedClub}
+          tournaments={tournaments}
+          rankedById={rankedById}
+          onOpenProfile={(p) => { setSelectedClub(null); setProfileOpenPlayerId(p.id); }}
+          onClose={() => setSelectedClub(null)}
+        />
+      )}
+
       {/* ── Team manager modals ── */}
       {showTeamManager && (
         <Modal title="จัดการทีม" onClose={() => setShowTeamManager(false)}>
           <TeamManagerList
             teams={teams}
             playersById={rankedById}
-            onAdd={() => setShowAddTeam(true)}
-            onEdit={(t) => setEditTeam(t)}
+            onAdd={() => { setShowTeamManager(false); setShowAddTeam(true); }}
+            onEdit={(t) => { setShowTeamManager(false); setEditTeam(t); }}
             onDeleteRequest={(t) => setDeleteTeamTarget(t)}
             onClose={() => setShowTeamManager(false)}
           />
@@ -1036,14 +1218,14 @@ export default function App() {
       )}
 
       {showAddTeam && (
-        <Modal title="สร้างทีมใหม่" onClose={() => setShowAddTeam(false)}>
-          <TeamForm players={ranked} onSave={addTeam} onClose={() => setShowAddTeam(false)} />
+        <Modal title="สร้างทีมใหม่" onClose={() => { setShowAddTeam(false); setShowTeamManager(true); }}>
+          <TeamForm players={ranked} onSave={addTeam} onClose={() => { setShowAddTeam(false); setShowTeamManager(true); }} />
         </Modal>
       )}
 
       {editTeam && (
-        <Modal title={`แก้ไขทีม: ${editTeam.name}`} onClose={() => setEditTeam(null)}>
-          <TeamForm initial={editTeam} players={ranked} onSave={(form) => updateTeam(editTeam.id, form)} onClose={() => setEditTeam(null)} />
+        <Modal title={`แก้ไขทีม: ${editTeam.name}`} onClose={() => { setEditTeam(null); setShowTeamManager(true); }}>
+          <TeamForm initial={editTeam} players={ranked} onSave={(form) => updateTeam(editTeam.id, form)} onClose={() => { setEditTeam(null); setShowTeamManager(true); }} />
         </Modal>
       )}
 
@@ -1057,6 +1239,26 @@ export default function App() {
           }
           onCancel={() => setDeleteTeamTarget(null)}
           onConfirm={() => deleteTeam(deleteTeamTarget.id)}
+        />
+      )}
+
+      {/* ── Summary modals ── */}
+      {showGenerateSummary && (
+        <Modal title="สร้างสรุปสถิติใหม่" onClose={() => setShowGenerateSummary(false)}>
+          <GenerateSummaryForm onGenerate={generateSummary} onClose={() => setShowGenerateSummary(false)} />
+        </Modal>
+      )}
+
+      {selectedSummary && (
+        <SummaryDetailModal summary={selectedSummary} onClose={() => setSelectedSummary(null)} />
+      )}
+
+      {deleteSummaryTarget && (
+        <ConfirmDeleteModal
+          title="ยืนยันการลบสรุป"
+          message={<>คุณต้องการลบสรุป <b style={{ color: "#f87171" }}>{deleteSummaryTarget.label}</b> หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้</>}
+          onCancel={() => setDeleteSummaryTarget(null)}
+          onConfirm={() => deleteSummary(deleteSummaryTarget.id)}
         />
       )}
 

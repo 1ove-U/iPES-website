@@ -5,12 +5,12 @@ import { useState } from "react";
 import { Pill, EmptyState } from "./ui";
 import { Avatar } from "./Avatar";
 import { ClubLogo, clubBannerGradient } from "./ClubManager";
-import { colors, card } from "../lib/theme";
+import { colors, card, btnGhost } from "../lib/theme";
 import { aggregateClubs, rankColor } from "../lib/scoring";
 
 const medalIcon = (rank) => rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : null;
 
-export const ClubRankingTab = ({ ranked, clubsByName, onOpenProfile }) => {
+export const ClubRankingTab = ({ ranked, clubsByName, tournaments, onOpenProfile, onOpenClub }) => {
   const [expanded, setExpanded] = useState(null);
   const clubs = aggregateClubs(ranked, clubsByName);
 
@@ -76,17 +76,25 @@ export const ClubRankingTab = ({ ranked, clubsByName, onOpenProfile }) => {
                   <Pill tone="silver">🥈 {c.runnerUp} รองแชมป์</Pill>
                   <Pill tone="green">{c.winRate.toFixed(1)}% ชนะ</Pill>
                 </div>
-                {c.players.map((p) => (
+                {c.players.slice(0, 5).map((p) => (
                   <button key={p.id} onClick={() => onOpenProfile(p)} style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 0",
                     background: "none", border: "none", cursor: "pointer", color: "inherit", textAlign: "left", fontFamily: "inherit",
                   }}>
                     <Avatar player={p} size={28} radius={8} />
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{p.name}</span>
-                    <span style={{ fontSize: 12, color: colors.faint }}>#{p.rank} โลก</span>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: colors.cyan }}>{p.score} pts</span>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                    <span style={{ fontSize: 12, color: colors.faint, flexShrink: 0 }}>#{p.rank} โลก</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: colors.cyan, flexShrink: 0 }}>{p.score} pts</span>
                   </button>
                 ))}
+                {c.players.length > 5 && (
+                  <div style={{ fontSize: 11, color: colors.faint, padding: "6px 0 2px" }}>และอีก {c.players.length - 5} คน — ดูทั้งหมดในรายละเอียดสโมสร์</div>
+                )}
+                <button onClick={() => onOpenClub(c)} style={{
+                  ...btnGhost, width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                }}>
+                  ดูรายละเอียดสโมสร์ทั้งหมด
+                </button>
               </div>
             )}
           </div>

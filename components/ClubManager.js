@@ -58,6 +58,9 @@ export const ClubForm = ({ initial, onSave, onClose }) => {
   const [logoUrl, setLogoUrl] = useState(initial?.logoUrl || "");
   const [colorPrimary, setColorPrimary] = useState(initial?.colorPrimary || "#a78bfa");
   const [colorSecondary, setColorSecondary] = useState(initial?.colorSecondary || "#22d3ee");
+  const [description, setDescription] = useState(initial?.description || "");
+  const [location, setLocation] = useState(initial?.location || "");
+  const [facebookUrl, setFacebookUrl] = useState(initial?.facebookUrl || "");
 
   return (
     <div>
@@ -78,6 +81,25 @@ export const ClubForm = ({ initial, onSave, onClose }) => {
         <label style={labelStyle}>ลิงก์รูปโลโก้ (ไม่บังคับ)</label>
         <input type="text" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} style={inputStyle}
           placeholder="https://..." />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        <div>
+          <label style={labelStyle}>เมือง/ประเทศ (ไม่บังคับ)</label>
+          <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} style={inputStyle}
+            placeholder="เช่น กรุงเทพฯ" />
+        </div>
+        <div>
+          <label style={labelStyle}>ลิงก์ Facebook (ไม่บังคับ)</label>
+          <input type="text" value={facebookUrl} onChange={(e) => setFacebookUrl(e.target.value)} style={inputStyle}
+            placeholder="https://facebook.com/..." />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label style={labelStyle}>ประวัติ/คำอธิบายสโมสร์ (ไม่บังคับ)</label>
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={{ ...inputStyle, minHeight: 80, resize: "vertical" }}
+          placeholder="เล่าเรื่องราว ที่มา หรือจุดเด่นของสโมสร์นี้..." />
       </div>
 
       <div style={{ marginBottom: 14 }}>
@@ -111,7 +133,7 @@ export const ClubForm = ({ initial, onSave, onClose }) => {
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={onClose} style={{ ...btnGhost, flex: 1 }}>ยกเลิก</button>
         <button
-          onClick={() => { if (name.trim()) { onSave({ name: name.trim(), logoUrl: logoUrl.trim(), colorPrimary, colorSecondary }); onClose(); } }}
+          onClick={() => { if (name.trim()) { onSave({ name: name.trim(), logoUrl: logoUrl.trim(), colorPrimary, colorSecondary, description: description.trim(), location: location.trim(), facebookUrl: facebookUrl.trim() }); onClose(); } }}
           style={{ ...btnPrimary, flex: 2 }}
         >บันทึก</button>
       </div>

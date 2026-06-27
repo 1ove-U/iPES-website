@@ -6,7 +6,7 @@ import {
   IconSearch, IconPlus, IconEdit, IconTrash, IconClose, IconPin, Pill, MovementPill,
 } from "./ui";
 import { Avatar } from "./Avatar";
-import { ClubLogo, clubBannerGradient } from "./ClubManager";
+import { ClubLogo } from "./ClubManager";
 import { colors, table, th, thR, td, tdR, btnPrimary, iconBtnCyan, iconBtnRed } from "../lib/theme";
 import { rankMedal, rankColor, getMovement } from "../lib/scoring";
 
@@ -68,12 +68,6 @@ export const LeaderboardTab = ({
             const hasClubColors = club?.colorPrimary && club?.colorSecondary;
             return (
               <div key={p.id} style={podiumCard(p.rank)} className={p.rank === 1 ? "gold-glow" : ""}>
-                {hasClubColors && (
-                  <div style={{
-                    position: "absolute", top: 0, left: 0, right: 0, height: 4,
-                    borderRadius: "14px 14px 0 0", background: clubBannerGradient(club),
-                  }} />
-                )}
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
                   <Avatar player={p} size={p.rank === 1 ? 52 : 44} radius={14} />
                 </div>
@@ -84,7 +78,12 @@ export const LeaderboardTab = ({
                 }}>{p.name}</button>
                 {p.club && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginBottom: 4 }}>
-                    <ClubLogo name={p.club} logoUrl={club?.logoUrl} size={14} radius={4} />
+                    <span style={{
+                      display: "inline-flex", borderRadius: 6,
+                      boxShadow: hasClubColors ? `0 0 0 1.5px ${club.colorPrimary}` : "none",
+                    }}>
+                      <ClubLogo name={p.club} logoUrl={club?.logoUrl} size={14} radius={4} />
+                    </span>
                     <span style={{ fontSize: 11, color: colors.dim }}>{p.club}</span>
                   </div>
                 )}
@@ -160,7 +159,15 @@ export const LeaderboardTab = ({
                 <td className="hide-mobile" style={{ ...td, color: "#a39ee0" }}>
                   {p.club ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <ClubLogo name={p.club} logoUrl={clubsByName?.get(p.club.toLowerCase())?.logoUrl} size={22} radius={6} />
+                      {(() => {
+                        const club = clubsByName?.get(p.club.toLowerCase());
+                        const hasColors = club?.colorPrimary && club?.colorSecondary;
+                        return (
+                          <span style={{ display: "inline-flex", borderRadius: 8, boxShadow: hasColors ? `0 0 0 1.5px ${club.colorPrimary}` : "none" }}>
+                            <ClubLogo name={p.club} logoUrl={club?.logoUrl} size={22} radius={6} />
+                          </span>
+                        );
+                      })()}
                       <span>{p.club}</span>
                     </div>
                   ) : "—"}
@@ -202,6 +209,7 @@ export const LeaderboardTab = ({
         <span>🏆 แชมป์ = <b style={{ color: colors.gold }}>10 คะแนน</b></span>
         <span>🥈 รองแชมป์ = <b style={{ color: colors.silver }}>6 คะแนน</b></span>
         <span>📅 เข้าร่วม = <b style={{ color: colors.cyan }}>1 คะแนน</b></span>
+        <span>⚔️ ชนะแมตช์ = <b style={{ color: colors.green }}>2 คะแนน</b></span>
         <span>▲▼ เปลี่ยนแปลง = เทียบกับอันดับล่าสุดที่ Admin บันทึกไว้</span>
       </div>
     </div>

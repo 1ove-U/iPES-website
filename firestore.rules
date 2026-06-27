@@ -53,6 +53,15 @@ service cloud.firestore {
                     && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    // Summaries: periodic stats recap snapshots (monthly/season), frozen at
+    // generation time. Public read so everyone can browse past summaries;
+    // admin-only write since only the admin generates/deletes them.
+    match /summaries/{summaryId} {
+      allow read: if true;
+      allow write: if request.auth != null
+                    && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     // Small metadata docs: rankingSnapshot (timestamp of the last "Ranking
     // Movement" snapshot) and rule (the competition rules page body).
     // Public read, admin-only write — same trust model as everything else.

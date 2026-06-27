@@ -1,7 +1,7 @@
 // components/Tournaments.js
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   IconPlus, IconEdit, IconTrash, IconTrophy, IconSearch, Pill, EmptyState, SectionHeader, formatDate,
 } from "./ui";
@@ -334,10 +334,19 @@ const TournamentCard = ({ t, isAdmin, isOpen, onToggle, onEdit, onDeleteRequest 
 
 export const TournamentArchiveTab = ({
   tournaments, matchesByTournament, playersById, teamsById, isAdmin,
-  onAdd, onEdit, onDeleteRequest, onOpenResult, onSetDeadline,
+  onAdd, onEdit, onDeleteRequest, onOpenResult, onSetDeadline, initialExpandedId,
 }) => {
-  const [expanded, setExpanded] = useState(null);
+  const [expanded, setExpanded] = useState(initialExpandedId || null);
   const [season, setSeason] = useState("all");
+
+  // If the parent asks to jump to a specific tournament (e.g. tapping a
+  // card in the Live Lobby), honor a fresh request even after this tab has
+  // already mounted once — but only react to genuine changes, so it
+  // doesn't fight the person's own manual expand/collapse clicks.
+  useEffect(() => {
+    if (initialExpandedId) setExpanded(initialExpandedId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialExpandedId]);
 
   const seasons = useMemo(() => {
     const set = new Set(tournaments.map((t) => t.season).filter(Boolean));
